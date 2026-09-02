@@ -5,7 +5,7 @@ import { outcomeTransitions, NOTICE, FAILING_LEVELS } from './checks.js';
 // by a flaky test. The static file checks cannot flake, and re-running a whole
 // suite because a stray `.only` appeared would cost minutes for nothing.
 const OUTCOME_DERIVED = new Set([
-  'test-regressed', 'failing-test-silenced', 'failing-test-removed', 'suite-shrank',
+  'test-regressed', 'failing-test-silenced', 'failing-test-removed',
 ]);
 
 // A single flaky test is enough to make whatran accuse someone on a tree they
@@ -19,13 +19,13 @@ export function confirmFindings({ findings, base, headOutcomes, runner, projectD
   const suspect = findings.filter(
     (f) => OUTCOME_DERIVED.has(f.code) && FAILING_LEVELS.has(f.level),
   );
-  if (!suspect.length) return { findings, unstable: [], confirmed: false };
+  if (!suspect.length) return { findings, unstable: knownUnstable, confirmed: false };
 
   const second = runSuite(runner, projectDir, { timeoutMs });
   if (!second.ok) {
     // Could not get a second opinion. Report the first run rather than inventing
     // certainty either way, but say the check was not confirmed.
-    return { findings, unstable: [], confirmed: false };
+    return { findings, unstable: knownUnstable, confirmed: false };
   }
 
   const differed = outcomesThatMoved(headOutcomes, second.outcomes);
@@ -36,11 +36,6 @@ export function confirmFindings({ findings, base, headOutcomes, runner, projectD
 
   for (const f of findings) {
     if (!OUTCOME_DERIVED.has(f.code) || !FAILING_LEVELS.has(f.level)) { kept.push(f); continue; }
-    if (f.code === 'suite-shrank') {
-      // No per-test evidence to intersect; keep it only if it recurs.
-      if (secondFindings.some((g) => g.code === f.code)) kept.push(f);
-      continue;
-    }
     // Intersect the evidence itself, not the finding. One flaky test in a batch
     // of five must not suppress the four real ones.
     const alsoInSecond = new Set(

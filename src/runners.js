@@ -84,7 +84,9 @@ export const RUNNERS = [
     lang: 'go',
     detect: (root) => (exists(root, 'go.mod') ? CONFIDENCE.CONFIGURED : CONFIDENCE.NONE),
     command() {
-      return { cmd: 'go', args: ['test', '-json', './...'], captureStdout: true };
+      // Go writes its machine-readable output to stdout, which runSuite passes
+      // to every parser as the second argument.
+      return { cmd: 'go', args: ['test', '-json', './...'] };
     },
     parse: (_outFile, stdout) => parseGoTestJson(stdout),
     outExt: '.json',

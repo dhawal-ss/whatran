@@ -4,6 +4,16 @@ import { fileURLToPath } from 'node:url';
 
 const MARKER = 'whatran hook';
 
+// Every entry whatran writes into somebody else's config carries this flag, and
+// nothing is ever removed without it.
+//
+// The previous version matched the substring "whatran" anywhere in the
+// serialised config. That deleted a user's own unrelated hook whose command
+// merely referenced a path containing the word — demonstrated, silently, with
+// no way to get it back. Never identify your own data in someone else's file by
+// guessing at its contents.
+const OWNED = '_whatran';
+
 // The hook config has to name a command that will actually resolve months from
 // now, on a machine that may never have installed anything. Writing
 // `npx whatran` when the package is not published — or is only checked out
@@ -36,9 +46,11 @@ const TARGETS = [
       doc.hooks ??= {};
       const cmd = hookCommand();
       addHook(doc.hooks, 'SessionStart', {
+        [OWNED]: true,
         hooks: [{ type: 'command', command: cmd + ' --event SessionStart', timeout: 900 }],
       });
       addHook(doc.hooks, 'Stop', {
+        [OWNED]: true,
         hooks: [{ type: 'command', command: cmd, timeout: 900 }],
       });
       return doc;
@@ -53,6 +65,7 @@ const TARGETS = [
       const doc = existing ?? {};
       doc.hooks ??= {};
       addHook(doc.hooks, 'Stop', {
+        [OWNED]: true,
         hooks: [{ type: 'command', command: hookCommand(), timeout: 900 }],
       });
       return doc;
@@ -68,18 +81,52 @@ const TARGETS = [
       doc.hooks ??= {};
       // Cursor's stop hook cannot block; it re-prompts instead.
       doc.hooks.stop ??= [];
-      if (!JSON.stringify(doc.hooks.stop).includes('whatran')) {
-        doc.hooks.stop.push({ command: hookCommand() });
+      if (!doc.hooks.stop.some(isOurs)) {
+        doc.hooks.stop.push({ [OWNED]: true, command: hookCommand() });
       }
       return doc;
     },
   },
 ];
 
+function isOurs(entry) {
+  return Boolean(entry && typeof entry === 'object' && entry[OWNED] === true);
+}
+
 function addHook(hooks, event, entry) {
   hooks[event] ??= [];
-  if (JSON.stringify(hooks[event]).includes('whatran')) return;
+  if (hooks[event].some(isOurs)) return;
   hooks[event].push(entry);
+}
+
+// True when this config already carries an entry whatran put there.
+function alreadyInstalled(doc) {
+  let found = false;
+  walk(doc, (node) => { if (isOurs(node)) found = true; });
+  return found;
+}
+
+function walk(node, fn) {
+  if (Array.isArray(node)) { for (const v of node) { fn(v); walk(v, fn); } return; }
+  if (node && typeof node === 'object') {
+    fn(node);
+    for (const v of Object.values(node)) walk(v, fn);
+  }
+}
+
+// Config belonging to someone else. Written the same way as the baseline:
+// to a sibling, then renamed, so an interrupted run cannot leave a truncated
+// settings file behind and stop their agent from starting.
+function writeJsonAtomic(file, doc) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(doc, null, 2) + '\n');
+  try {
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* ignore */ }
+    throw err;
+  }
 }
 
 export function installHooks(root) {
@@ -98,15 +145,17 @@ export function installHooks(root) {
         out.push(`! ${t.file} exists but is not valid JSON — left untouched`);
         continue;
       }
-      if (JSON.stringify(existing).includes('whatran')) {
+      if (alreadyInstalled(existing)) {
         out.push(`· ${t.label} hook already installed`);
         continue;
       }
     }
-    const doc = t.build(existing);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n');
-    out.push(`+ ${t.label} hook installed (${t.file})`);
+    try {
+      writeJsonAtomic(file, t.build(existing));
+      out.push(`+ ${t.label} hook installed (${t.file})`);
+    } catch (err) {
+      out.push(`! could not write ${t.file}: ${err.message}`);
+    }
   }
   ensureGitignore(root, out);
   return out;
@@ -119,27 +168,35 @@ export function uninstallHooks(root) {
     if (!fs.existsSync(file)) continue;
     let doc;
     try { doc = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { continue; }
-    const before = JSON.stringify(doc);
-    stripwhatran(doc);
-    const after = JSON.stringify(doc);
-    if (before !== after) {
-      fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n');
+    const removed = stripOwned(doc);
+    if (!removed) continue;
+    // Removing our entry can leave an empty event array that only existed
+    // because we created it. Leaving litter in someone else's config is a
+    // small rudeness, and it means uninstall does not truly undo install.
+    pruneEmptyEvents(doc);
+    try {
+      writeJsonAtomic(file, doc);
       out.push(`- ${t.label} hook removed (${t.file})`);
+    } catch (err) {
+      out.push(`! could not write ${t.file}: ${err.message}`);
     }
   }
   if (!out.length) out.push('· no whatran hooks found');
   return out;
 }
 
-function stripwhatran(node) {
+// Removes only entries whatran itself marked. Returns how many went.
+function stripOwned(node) {
+  let removed = 0;
   if (Array.isArray(node)) {
     for (let i = node.length - 1; i >= 0; i--) {
-      if (JSON.stringify(node[i]).includes('whatran')) node.splice(i, 1);
-      else stripwhatran(node[i]);
+      if (isOurs(node[i])) { node.splice(i, 1); removed++; }
+      else removed += stripOwned(node[i]);
     }
   } else if (node && typeof node === 'object') {
-    for (const v of Object.values(node)) stripwhatran(v);
+    for (const v of Object.values(node)) removed += stripOwned(v);
   }
+  return removed;
 }
 
 function ensureGitignore(root, out) {
@@ -149,4 +206,13 @@ function ensureGitignore(root, out) {
   if (text.split(/\r?\n/).some((l) => l.trim() === '.whatran/' || l.trim() === '.whatran')) return;
   fs.writeFileSync(gi, (text && !text.endsWith('\n') ? text + '\n' : text) + `\n# ${MARKER} — local baseline, not shared\n.whatran/\n`);
   out.push('+ .whatran/ added to .gitignore');
+}
+
+// Drops event keys under `hooks` whose array is now empty.
+function pruneEmptyEvents(doc) {
+  const hooks = doc && typeof doc === 'object' ? doc.hooks : null;
+  if (!hooks || typeof hooks !== 'object') return;
+  for (const [event, entries] of Object.entries(hooks)) {
+    if (Array.isArray(entries) && entries.length === 0) delete hooks[event];
+  }
 }

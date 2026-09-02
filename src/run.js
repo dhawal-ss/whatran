@@ -41,7 +41,7 @@ export function runSuite(runner, cwd, { timeoutMs = 15 * 60 * 1000, env = {} } =
 
   let outcomes;
   try {
-    outcomes = spec.captureStdout ? runner.parse(outFile, stdout) : runner.parse(outFile, stdout);
+    outcomes = runner.parse(outFile, stdout);
   } catch (err) {
     cleanup();
     return fail(`could not parse ${runner.label} output: ${err.message}`, res.status);
