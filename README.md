@@ -127,14 +127,24 @@ No snapshot needed — it builds one from the ref in a detached worktree.
 - **Codex CLI** — same, via `.codex/hooks.json`.
 - **Cursor** — `stop` hook; Cursor can't block, so it re-prompts instead.
 
-When it blocks, the agent is told:
+When it blocks, the agent is told exactly what went wrong and what to do about *that particular
+thing* — "restore these tests" is the wrong advice for a regression:
 
-> Verification failed. Your change removed test coverage that existed before:
-> - 1 failing test was skipped instead of fixed
->     `test_auth::test_expired_token_rejected`
->
-> Restore these tests and make them pass by fixing the underlying problem. Do not skip, delete,
-> or weaken them, and do not modify the test harness to work around this.
+```
+whatran compared what your test suite ran before this change with what it runs now.
+
+1 failing test was skipped instead of fixed:
+    test_auth::test_expired_token_rejected
+  -> Restore these tests and make them pass by fixing the underlying problem. Do not
+     skip them. If one is genuinely obsolete, say so explicitly and explain why.
+
+1 test that passed now fails:
+    test_auth::test_token_has_user
+  -> Your change broke these. Fix the code so they pass again. Do not edit the tests
+     to match the new behaviour unless changing that behaviour was the point.
+
+Do not modify the test harness to work around any of this.
+```
 
 ## Why it works this way
 
