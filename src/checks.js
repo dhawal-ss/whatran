@@ -266,3 +266,27 @@ export function collectHarnessState(root, listFiles) {
   }
   return state;
 }
+
+// ---------------------------------------------------------------------------
+// Check 5 — new tests that do not check anything.
+//
+// A test that runs but verifies nothing is worse than no test at all: the suite
+// looks larger and coverage looks better while nothing is actually proven. It
+// is also the most common weakness in agent-written tests.
+//
+// Always a NOTICE. A test that only asserts "this does not throw" is a real and
+// legitimate practice, so this is a nudge, never a verdict.
+// ---------------------------------------------------------------------------
+export function assertionFreeTests(bare) {
+  if (!bare.length) return [];
+  return [{
+    level: NOTICE,
+    code: 'test-without-assertion',
+    title: plural(bare.length, 'new test does not appear to check anything',
+      'new tests do not appear to check anything'),
+    detail: 'These were added by this change and contain no assertion we can see. '
+      + 'A smoke test that only proves the code does not throw is legitimate — but if that '
+      + 'was not the intent, the test is passing for free.',
+    evidence: bare,
+  }];
+}

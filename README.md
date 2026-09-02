@@ -46,12 +46,24 @@ No account, no config file, no cloud, no LLM, no telemetry. Zero runtime depende
 
 ## What it looks for
 
-| | |
-|---|---|
-| **A failure that stopped failing the honest way** | A test that was **failing** before is now **skipped** or **gone**. The failing test is the specification of the bug — anything other than failed → passed means the specification moved. |
-| **A moved goalpost** | `conftest.py`, `pytest.ini`, `jest.config`, `.github/workflows/`. A single new `conftest.py` can force an entire suite to report as passed without touching a line of source. |
-| **A focus lock** | A stray `.only` / `fdescribe` / `fit` silently stops every other test in its file from running, while the suite still reports green. |
-| **A shrinking suite** | A blunt backstop: fewer tests collected than before, and nothing more specific explains it. |
+| | | |
+|---|---|---|
+| **A failure that stopped failing the honest way** | A test that was **failing** before is now **skipped** or **gone**. The failing test is the specification of the bug — anything other than failed → passed means the specification moved. | `MISSING` |
+| **A regression** | A test that **passed** before now **fails**. Your change broke something that worked. | `BROKE` |
+| **A test that checks nothing** | A test added by this change with no assertion in it. A test that runs but verifies nothing makes the suite look bigger while proving less. | `NOTICE` |
+| **A moved goalpost** | `conftest.py`, `pytest.ini`, `jest.config`, `.github/workflows/`. A single new `conftest.py` can force an entire suite to report as passed without touching a line of source. | `NOTICE` |
+| **A focus lock** | A stray `.only` / `fdescribe` / `fit` silently stops every other test in its file from running, while the suite still reports green. | `MISSING` |
+| **A shrinking suite** | A blunt backstop: fewer tests collected than before, and nothing more specific explains it. | `NOTICE` |
+
+### Why `MISSING` and `BROKE` are treated differently
+
+A broken test **shouts**: it is red in the output, the agent sees it, CI sees it, nobody can miss
+it. A silenced test **hides**: the suite goes green and the only trace is one line in a diff.
+
+whatran exists for the second kind, so it only interrupts your agent mid-conversation for
+`MISSING`. Blocking every turn where a test happens to be red would make it unusable during a
+refactor. `BROKE` still fails `whatran check` and CI — and once whatran is interrupting for any
+reason, it reports everything it found, because the agent is listening anyway.
 
 ## What it will not do
 
@@ -155,7 +167,7 @@ than be silently skipped.
 ## Development
 
 ```bash
-npm test        # 72 unit and integration tests, no dependencies
+npm test        # 98 unit and integration tests, no dependencies
 ```
 
 ## Licence

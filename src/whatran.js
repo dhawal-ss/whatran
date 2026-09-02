@@ -4,11 +4,15 @@ import { loadBaseline, captureFromRef, saveBaseline } from './baseline.js';
 import { changedFiles, head as gitHead, mergeBase, listFiles, listFilesAtRef, fileAtRef } from './git.js';
 import {
   outcomeTransitions, harnessTampering, focusLocks, suiteShrank, verdict,
-  collectHarnessState, isHarnessFile, MISSING, NOTICE, INTACT,
+  collectHarnessState, isHarnessFile, assertionFreeTests,
+  MISSING, BROKE, NOTICE, INTACT,
 } from './checks.js';
+import { newTestsWithoutAssertions } from './oracle.js';
 import { createHash } from 'node:crypto';
+import fsMod from 'node:fs';
+import pathMod from 'node:path';
 
-export { MISSING, NOTICE, INTACT };
+export { MISSING, BROKE, NOTICE, INTACT };
 
 export function pickRunner(root, explicit, cwd = root) {
   return resolveProject(cwd, root, explicit).runner;
@@ -98,6 +102,12 @@ export function whatran(root, opts = {}) {
     ...outcomeTransitions(base, now.outcomes),
     ...focusLocks(root, changed),
     ...harnessTampering(baselineHarness, collectHarnessState(root, () => listFiles(root))),
+    // Needs a ref to diff against — without one, every test looks new.
+    ...(sinceRef ? assertionFreeTests(newTestsWithoutAssertions(
+      changed,
+      (rel) => { try { return fsMod.readFileSync(pathMod.join(root, rel), 'utf8'); } catch { return ''; } },
+      (rel) => fileAtRef(root, sinceRef, rel),
+    )) : []),
   ];
   const explained = findings.some((f) =>
     f.code === 'failing-test-removed' || f.code === 'test-vanished' || f.code === 'focus-lock');
