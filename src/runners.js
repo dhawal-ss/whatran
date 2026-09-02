@@ -26,7 +26,7 @@ export const RUNNERS = [
     label: 'pytest',
     lang: 'python',
     detect(root) {
-      if (/pytest/.test(testScript(root))) return CONFIDENCE.DECLARED;
+      if (/\bpytest\b/.test(testScript(root))) return CONFIDENCE.DECLARED;
       if (exists(root, 'pytest.ini') || exists(root, 'conftest.py')) return CONFIDENCE.CONFIGURED;
       if (/\[tool\.pytest/.test(read(path.join(root, 'pyproject.toml')))) return CONFIDENCE.CONFIGURED;
       if (/\[(tool:)?pytest\]/.test(read(path.join(root, 'setup.cfg')) + read(path.join(root, 'tox.ini')))) return CONFIDENCE.CONFIGURED;
@@ -48,7 +48,7 @@ export const RUNNERS = [
     label: 'Vitest',
     lang: 'js',
     detect(root) {
-      if (/vitest/.test(testScript(root))) return CONFIDENCE.DECLARED;
+      if (/\bvitest\b/.test(testScript(root))) return CONFIDENCE.DECLARED;
       if (hasDep(pkgJson(root), 'vitest')) return CONFIDENCE.CONFIGURED;
       return ['vitest.config.ts', 'vitest.config.js', 'vitest.config.mjs'].some((f) => exists(root, f))
         ? CONFIDENCE.CONFIGURED : CONFIDENCE.NONE;
@@ -65,7 +65,7 @@ export const RUNNERS = [
     label: 'Jest',
     lang: 'js',
     detect(root) {
-      if (/jest/.test(testScript(root))) return CONFIDENCE.DECLARED;
+      if (/\bjest\b/.test(testScript(root))) return CONFIDENCE.DECLARED;
       const pkg = pkgJson(root);
       if (hasDep(pkg, 'jest') || pkg?.jest) return CONFIDENCE.CONFIGURED;
       return ['jest.config.js', 'jest.config.ts', 'jest.config.mjs', 'jest.config.json'].some((f) => exists(root, f))
