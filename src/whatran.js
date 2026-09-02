@@ -4,11 +4,11 @@ import { loadBaseline, captureFromRef, saveBaseline } from './baseline.js';
 import { changedFiles, head as gitHead, mergeBase, listFiles, listFilesAtRef, fileAtRef } from './git.js';
 import {
   outcomeTransitions, harnessTampering, focusLocks, suiteShrank, verdict,
-  collectHarnessState, isHarnessFile, DENIED, FLAGGED, ALLOWED,
+  collectHarnessState, isHarnessFile, MISSING, NOTICE, INTACT,
 } from './checks.js';
 import { createHash } from 'node:crypto';
 
-export { DENIED, FLAGGED, ALLOWED };
+export { MISSING, NOTICE, INTACT };
 
 export function pickRunner(root, explicit, cwd = root) {
   return resolveProject(cwd, root, explicit).runner;
@@ -22,7 +22,7 @@ export function projectDirFor(root, explicit, cwd = root) {
 
 // The single entry point. Returns a structured result; rendering lives elsewhere
 // so the CLI, the JSON output and the agent hook all agree on the facts.
-export function adjust(root, opts = {}) {
+export function whatran(root, opts = {}) {
   const started = Date.now();
   const { runner, dir: projectDir } = resolveProject(opts.cwd ?? root, root, opts.runner);
   if (!runner) {
@@ -46,7 +46,7 @@ export function adjust(root, opts = {}) {
     const saved = loadBaseline(projectDir);
     if (!saved) {
       return inconclusive(
-        'no baseline recorded yet — run `adjuster snapshot` on a known-good tree first, '
+        'no baseline recorded yet — run `whatran snapshot` on a known-good tree first, '
         + 'or pass --base <ref> to compare against a git ref',
         { runner: runner.label },
       );
@@ -156,7 +156,7 @@ export function snapshot(root, opts = {}) {
     ref: gitHead(root),
     harness: collectHarnessState(root, () => listFiles(root)),
   });
-  return { ok: true, runner: runner.label, summary: saved.summary, path: '.adjuster/baseline.json' };
+  return { ok: true, runner: runner.label, summary: saved.summary, path: '.whatran/baseline.json' };
 }
 
 // Harness file hashes as of a git ref, for CI mode where there is no recorded

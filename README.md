@@ -1,8 +1,6 @@
-# adjuster
+# whatran
 
-<sub>npm: <code>adjuster-cli</code> · command: <code>adjuster</code></sub>
-
-**Catches the test that stopped running.**
+**What your test suite actually ran.**
 
 Your agent says the tests pass. They do — the ones that are left.
 
@@ -11,11 +9,11 @@ $ pytest -q
 2 passed, 1 skipped     ← exit code 0. CI is green. The bug is still there.
 ```
 
-`adjuster` compares what your test suite ran *before* the agent worked against what it runs
-*now*, and tells you when coverage quietly went missing.
+`whatran` remembers what your suite ran *before* the agent started, and tells you when
+something stops running.
 
 ```
-  DENIED   1 failing test was skipped instead of fixed
+  MISSING  1 failing test was skipped instead of fixed
             These tests were failing before the change and are now not running at all.
             The suite reports green because they no longer report anything.
             · test_auth::test_expired_token_rejected
@@ -30,34 +28,35 @@ $ pytest -q
 > **Not published to npm yet.** Until it is, clone and run it directly:
 >
 > ```bash
-> git clone <this-repo> && node adjuster/bin/adjuster.js init
+> git clone <this-repo> && node whatran/bin/whatran.js init
 > ```
 > `init` writes an absolute path into the hook config, so it keeps working from a clone.
 
 Once published:
 
 ```bash
-npx adjuster-cli init
+npx whatran init
 ```
 
-That's it. It detects your test runner, records a baseline, and installs a hook so your coding
-agent is stopped — and told to go back and fix it properly — the moment it removes coverage.
+That's it. It finds your test runner, remembers the current state of your suite, and installs a
+hook so your coding agent is stopped — and told to go back and fix it properly — the moment it
+removes coverage.
 
 No account, no config file, no cloud, no LLM, no telemetry. Zero runtime dependencies.
 
-## What it checks
+## What it looks for
 
-| Check | What it catches |
+| | |
 |---|---|
-| **Silenced failures** | A test that was **failing** before is now **skipped** or **gone**. The failing test is the specification of the bug — anything other than failed → passed means the specification moved. |
-| **Harness tampering** | `conftest.py`, `pytest.ini`, `jest.config`, `.github/workflows/` and friends. A single new `conftest.py` can force an entire suite to report as passed without touching a line of source. |
-| **Focus locks** | A stray `.only` / `fdescribe` / `fit` silently disables every other test in its file while the suite still reports green. |
-| **Suite shrinkage** | A blunt backstop: fewer tests are collected than before, and nothing more specific explains it. |
+| **A failure that stopped failing the honest way** | A test that was **failing** before is now **skipped** or **gone**. The failing test is the specification of the bug — anything other than failed → passed means the specification moved. |
+| **A moved goalpost** | `conftest.py`, `pytest.ini`, `jest.config`, `.github/workflows/`. A single new `conftest.py` can force an entire suite to report as passed without touching a line of source. |
+| **A focus lock** | A stray `.only` / `fdescribe` / `fit` silently stops every other test in its file from running, while the suite still reports green. |
+| **A shrinking suite** | A blunt backstop: fewer tests collected than before, and nothing more specific explains it. |
 
-## What it does *not* do
+## What it will not do
 
-It does not accuse you when it isn't sure. If the suite fails to collect, if a dependency is
-missing, if a worktree can't be built — it says **INCONCLUSIVE** and stays out of your way.
+**It will not accuse you when it isn't sure.** If the suite fails to collect, if a dependency is
+missing, if a worktree can't be built — it says so and stays out of your way.
 
 ```
   INCONCLUSIVE  pytest exited 2, which means the suite did not run to completion
@@ -67,13 +66,15 @@ missing, if a worktree can't be built — it says **INCONCLUSIVE** and stays out
 That distinction is the whole reason you can leave it switched on. A tool that cries wolf on a
 broken import gets uninstalled the same afternoon.
 
-It also never denies a **passing** test that becomes skipped. `@pytest.mark.skipif(sys.platform
-== "win32")` is a legitimate guard, not a cover-up, and tools that grep diffs for skip markers
-fire on every one of them.
+**It will not flag a passing test that becomes skipped.**
+`@pytest.mark.skipif(sys.platform == "win32")` is a legitimate guard, not a cover-up — and tools
+that grep diffs for skip markers fire on every one of them.
 
 ## Supported runners
 
-Auto-detected, using each framework's own built-in reporter — nothing to install.
+Found automatically, using each framework's own built-in reporter — nothing extra to install.
+If your project lives in a subfolder, run it from there; it looks where you are, not just at the
+top of the repo.
 
 | | Runner | How |
 |---|---|---|
@@ -82,38 +83,39 @@ Auto-detected, using each framework's own built-in reporter — nothing to insta
 | Go | `go test` | `-json` |
 | Rust | `cargo nextest` | JUnit output |
 
-Force one with `--runner <id>` if detection guesses wrong.
+When a repo has more than one, the runner named in the project's own test script wins over one
+merely guessed at from a stray file. Override with `--runner <id>`.
 
 ## Usage
 
 ```bash
-npx adjuster-cli                 # check the working tree against the baseline
-npx adjuster-cli snapshot        # record the current suite as the baseline
-npx adjuster-cli check --base main   # CI mode: compare against a git ref instead
-npx adjuster-cli detect          # show which runner would be used
-npx adjuster-cli uninstall       # remove the hooks
+npx whatran                  # check the working tree against the remembered state
+npx whatran snapshot         # remember the current suite
+npx whatran check --base main    # CI mode: compare against a git ref instead
+npx whatran detect           # show which runner would be used
+npx whatran uninstall        # remove the hooks
 ```
 
-Exit codes: `0` allowed or inconclusive, `1` denied, `2` flagged (with `--strict`).
+Exit codes: `0` fine or inconclusive, `1` something is missing, `2` notices only (with `--strict`).
 
 ### In CI
 
 ```yaml
-- run: npx adjuster-cli check --base ${{ github.event.pull_request.base.sha }}
+- run: npx whatran check --base ${{ github.event.pull_request.base.sha }}
 ```
 
-No baseline needed — it builds one from the ref in a detached worktree.
+No snapshot needed — it builds one from the ref in a detached worktree.
 
 ### With your agent
 
-`npx adjuster-cli init` wires up whichever of these it finds:
+`npx whatran init` wires up whichever of these it finds:
 
-- **Claude Code** — `SessionStart` records the baseline, `Stop` blocks the turn and hands the
-  agent an instruction to restore the tests.
+- **Claude Code** — `SessionStart` remembers the suite, `Stop` blocks the turn and hands the agent
+  an instruction to restore the tests.
 - **Codex CLI** — same, via `.codex/hooks.json`.
 - **Cursor** — `stop` hook; Cursor can't block, so it re-prompts instead.
 
-When it blocks, the agent receives this:
+When it blocks, the agent is told:
 
 > Verification failed. Your change removed test coverage that existed before:
 > - 1 failing test was skipped instead of fixed
@@ -124,36 +126,36 @@ When it blocks, the agent receives this:
 
 ## Why it works this way
 
-**It checks outcomes, not methods.** Agents route around checks they can see — one developer
+**It watches outcomes, not edits.** Agents route around checks they can see — one developer
 reported an agent switching to editing files with `sed` to evade a hook. You cannot fake a
 failed → passed transition by changing *how* you edit; the test either runs and passes or it
 doesn't.
 
 **It compares runs, not diffs.** A large class of skips leaves no trace in the source at all:
 `--deselect`, `collect_ignore`, a `-k` filter in CI config, a build tag, an `assumeTrue` that
-aborts at runtime, an import error that drops a whole file from collection. Only comparing what
-actually executed catches those.
+aborts at runtime, an import error that quietly drops a whole file from collection. Only
+comparing what actually executed catches those.
 
 **It is not about catching cheaters.** Deliberate test tampering is rare and getting rarer.
 Coverage disappearing by accident is not rare at all, and nothing else tells you when it happens.
 
 ## Speed
 
-The Stop hook runs on every turn, so it refuses to run your suite when nothing
-could possibly have changed a test outcome — documentation, images, build
-artefacts, agent config, or no edits at all.
+The agent hook runs on every turn, so it refuses to run your suite when nothing could possibly
+have changed a test outcome — documentation, images, build artefacts, agent config, or no edits
+at all.
 
-On a repo whose suite takes 3.5s, that is the difference between **255ms** and
-**3540ms** per turn. On a repo whose suite takes four minutes, it is the
-difference between the tool being invisible and being uninstalled.
+On a repo whose suite takes 3.5s that is the difference between **255ms** and **3540ms** per
+turn. On a repo whose suite takes four minutes it is the difference between the tool being
+invisible and being uninstalled.
 
-Everything unrecognised counts as relevant, so an unfamiliar file type causes a
-check to run rather than to be silently skipped.
+Anything unrecognised counts as relevant, so an unfamiliar file type causes a check to run rather
+than be silently skipped.
 
 ## Development
 
 ```bash
-npm test        # 61 unit and integration tests, no dependencies
+npm test        # 72 unit and integration tests, no dependencies
 ```
 
 ## Licence

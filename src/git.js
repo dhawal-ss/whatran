@@ -61,7 +61,7 @@ export function mergeBase(root, ref) {
 }
 
 export function addWorktree(root, ref) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'adjuster-base-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'whatran-base-'));
   // mkdtemp created it; git worktree add needs the path to not exist yet.
   fs.rmSync(dir, { recursive: true, force: true });
   git(root, ['worktree', 'add', '--detach', dir, ref]);

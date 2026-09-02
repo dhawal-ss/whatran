@@ -15,7 +15,7 @@ const write = (rel, body) => {
 };
 
 before(() => {
-  root = fs.mkdtempSync(path.join(os.tmpdir(), 'adjuster-proj-'));
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'whatran-proj-'));
 
   // A monorepo: nothing at the top, a real Vitest app one level down, and some
   // Python infra scripts alongside it. This is the shape that made a live repo
@@ -50,7 +50,7 @@ describe('finding the project inside a repo', () => {
   });
 
   test('reports nothing when the repo genuinely has no suite', () => {
-    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'adjuster-bare-'));
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'whatran-bare-'));
     try {
       assert.strictEqual(resolveProject(bare, bare).runner, null);
     } finally { fs.rmSync(bare, { recursive: true, force: true }); }

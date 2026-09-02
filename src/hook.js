@@ -1,7 +1,7 @@
-import { adjust, snapshot, DENIED } from './adjust.js';
+import { whatran, snapshot, MISSING } from './whatran.js';
 import { renderAgentFeedback } from './report.js';
 import { loadBaseline } from './baseline.js';
-import { projectDirFor } from './adjust.js';
+import { projectDirFor } from './whatran.js';
 import { head as gitHead } from './git.js';
 import { couldAffectTests } from './relevance.js';
 
@@ -34,16 +34,16 @@ export async function runHook(root, flags = {}) {
   const recorded = loadBaseline(projectDirFor(root, null, process.cwd()));
   if (!couldAffectTests(root, recorded?.ref ?? null)) return 0;
 
-  const result = adjust(root, { cwd: process.cwd(), timeoutMs: flags.timeout ? flags.timeout * 1000 : undefined });
+  const result = whatran(root, { cwd: process.cwd(), timeoutMs: flags.timeout ? flags.timeout * 1000 : undefined });
 
   // Inconclusive must never block. If we cannot obtain trustworthy evidence,
   // the honest answer is silence, not an accusation.
   if (!result.ok) {
-    if (process.env.ADJUSTER_DEBUG) process.stderr.write(`adjuster: ${result.inconclusive}\n`);
+    if (process.env.WHATRAN_DEBUG) process.stderr.write(`whatran: ${result.inconclusive}\n`);
     return 0;
   }
 
-  if (result.verdict !== DENIED) return 0;
+  if (result.verdict !== MISSING) return 0;
 
   process.stderr.write(renderAgentFeedback(result.findings) + '\n');
   return 2;
@@ -59,7 +59,7 @@ function handleSessionStart(root) {
 
   const res = snapshot(root, { cwd: process.cwd() });
   if (!res.ok) {
-    if (process.env.ADJUSTER_DEBUG) process.stderr.write(`adjuster: ${res.reason}\n`);
+    if (process.env.WHATRAN_DEBUG) process.stderr.write(`whatran: ${res.reason}\n`);
     return 0;
   }
   return 0;

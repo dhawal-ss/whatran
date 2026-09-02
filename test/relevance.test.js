@@ -77,7 +77,7 @@ describe('relevance gate', () => {
   });
 
   test('agent config alone is irrelevant', () => {
-    assert.deepStrictEqual(fixture(['.claude/settings.json', '.adjuster/baseline.json']), []);
+    assert.deepStrictEqual(fixture(['.claude/settings.json', '.whatran/baseline.json']), []);
   });
 
   test('source and test files are always relevant', () => {

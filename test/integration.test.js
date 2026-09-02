@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { adjust, snapshot, DENIED, FLAGGED, ALLOWED } from '../src/adjust.js';
+import { whatran, snapshot, MISSING, NOTICE, INTACT } from '../src/whatran.js';
 
 let repo;
 
@@ -35,7 +35,7 @@ function reset() {
 }
 
 before(() => {
-  repo = fs.mkdtempSync(path.join(os.tmpdir(), 'adjuster-it-'));
+  repo = fs.mkdtempSync(path.join(os.tmpdir(), 'whatran-it-'));
   fs.mkdirSync(path.join(repo, 'test'));
   write('package.json', JSON.stringify({ name: 'fixture', version: '1.0.0', type: 'module' }, null, 2));
   write('sum.js', SOURCE);
@@ -54,7 +54,7 @@ before(() => {
 
 after(() => { try { fs.rmSync(repo, { recursive: true, force: true }); } catch { /* ignore */ } });
 
-const run = () => adjust(repo, { runner: 'node-test' });
+const run = () => whatran(repo, { runner: 'node-test' });
 
 describe('integration', () => {
   test('an honest fix is allowed and reports the good transition', () => {
@@ -62,7 +62,7 @@ describe('integration', () => {
     write('sum.js', SOURCE.replace('product(a, b) { return a + b; }', 'product(a, b) { return a * b; }'));
     const r = run();
     assert.ok(r.ok, r.inconclusive);
-    assert.strictEqual(r.verdict, ALLOWED);
+    assert.strictEqual(r.verdict, INTACT);
     assert.ok(r.findings.some((f) => f.code === 'test-fixed'));
   });
 
@@ -70,7 +70,7 @@ describe('integration', () => {
     reset();
     write('test/sum.test.js', TESTS.replace("test('product multiplies'", "test.skip('product multiplies'"));
     const r = run();
-    assert.strictEqual(r.verdict, DENIED);
+    assert.strictEqual(r.verdict, MISSING);
     const f = r.findings.find((x) => x.code === 'failing-test-silenced');
     assert.ok(f, 'expected failing-test-silenced');
     assert.match(f.evidence[0], /product multiplies/);
@@ -81,7 +81,7 @@ describe('integration', () => {
     write('test/sum.test.js', TESTS.replace(
       "test('product multiplies', () => { assert.strictEqual(product(2, 3), 6); });\n", ''));
     const r = run();
-    assert.strictEqual(r.verdict, DENIED);
+    assert.strictEqual(r.verdict, MISSING);
     assert.ok(r.findings.some((x) => x.code === 'failing-test-removed'));
   });
 
@@ -90,7 +90,7 @@ describe('integration', () => {
     reset();
     write('test/sum.test.js', TESTS.replace("test('sum handles zero'", "test.skip('sum handles zero'"));
     const r = run();
-    assert.strictEqual(r.verdict, FLAGGED, JSON.stringify(r.findings, null, 2));
+    assert.strictEqual(r.verdict, NOTICE, JSON.stringify(r.findings, null, 2));
     assert.ok(r.findings.some((x) => x.code === 'passing-test-skipped'));
   });
 
@@ -98,7 +98,7 @@ describe('integration', () => {
     reset();
     write('test/sum.test.js', TESTS.replace("test('sum adds'", "test.only('sum adds'"));
     const r = run();
-    assert.strictEqual(r.verdict, DENIED);
+    assert.strictEqual(r.verdict, MISSING);
     assert.ok(r.findings.some((x) => x.code === 'focus-lock'));
   });
 
@@ -125,7 +125,7 @@ describe('integration', () => {
     write('test/sum.test.js', TESTS + "\ntest('brand new', () => { assert.ok(true); });\n");
     const r = run();
     assert.ok(r.ok, r.inconclusive);
-    assert.ok(!r.findings.some((f) => f.level === DENIED),
+    assert.ok(!r.findings.some((f) => f.level === MISSING),
       'adding tests must never be denied: ' + JSON.stringify(r.findings));
   });
 
@@ -133,7 +133,7 @@ describe('integration', () => {
     reset();
     const r = run();
     assert.ok(r.ok, r.inconclusive);
-    assert.notStrictEqual(r.verdict, DENIED);
+    assert.notStrictEqual(r.verdict, MISSING);
   });
 });
 
@@ -152,8 +152,8 @@ describe('committed work', () => {
     write('test/sum.test.js', TESTS.replace("test('product multiplies'", "test.skip('product multiplies'"));
     commit('agent commits the cheat');
     try {
-      const r = adjust(repo, { runner: 'node-test' });
-      assert.strictEqual(r.verdict, DENIED, JSON.stringify(r.findings, null, 2));
+      const r = whatran(repo, { runner: 'node-test' });
+      assert.strictEqual(r.verdict, MISSING, JSON.stringify(r.findings, null, 2));
     } finally { rollback(); }
   });
 
@@ -162,7 +162,7 @@ describe('committed work', () => {
     write('test/sum.test.js', TESTS.replace("test('sum adds'", "test.only('sum adds'"));
     commit('agent commits a .only');
     try {
-      const r = adjust(repo, { runner: 'node-test' });
+      const r = whatran(repo, { runner: 'node-test' });
       assert.ok(r.findings.some((f) => f.code === 'focus-lock'),
         'focus lock must be found in committed files: ' + JSON.stringify(r.findings));
     } finally { rollback(); }
@@ -173,8 +173,8 @@ describe('committed work', () => {
     write('sum.js', SOURCE.replace('product(a, b) { return a + b; }', 'product(a, b) { return a * b; }'));
     commit('agent commits an honest fix');
     try {
-      const r = adjust(repo, { runner: 'node-test' });
-      assert.notStrictEqual(r.verdict, DENIED);
+      const r = whatran(repo, { runner: 'node-test' });
+      assert.notStrictEqual(r.verdict, MISSING);
     } finally { rollback(); }
   });
 });

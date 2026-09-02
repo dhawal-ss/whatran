@@ -1,23 +1,23 @@
 #!/usr/bin/env node
 import process from 'node:process';
 import { repoRoot } from '../src/git.js';
-import { adjust, snapshot, pickRunner, projectDirFor, DENIED, FLAGGED } from '../src/adjust.js';
+import { whatran, snapshot, pickRunner, projectDirFor, MISSING, NOTICE } from '../src/whatran.js';
 import { renderLedger, renderJson } from '../src/report.js';
 import { runHook } from '../src/hook.js';
 import { installHooks, uninstallHooks } from '../src/install.js';
 import { detectRunners } from '../src/runners.js';
 
 const HELP = `
-  adjuster — catches the test that stopped running.
+  whatran — catches the test that stopped running.
 
   Usage
-    adjuster                     check the working tree against the recorded baseline
-    adjuster snapshot            record the current suite as the baseline
-    adjuster check [--base REF]  check; with --base, compare against a git ref instead
-    adjuster init                snapshot + install the agent hook for this repo
-    adjuster uninstall           remove the agent hook
-    adjuster hook                stdin/stdout hook protocol (called by your agent)
-    adjuster detect              show which test runner would be used
+    whatran                     check the working tree against the recorded baseline
+    whatran snapshot            record the current suite as the baseline
+    whatran check [--base REF]  check; with --base, compare against a git ref instead
+    whatran init                snapshot + install the agent hook for this repo
+    whatran uninstall           remove the agent hook
+    whatran hook                stdin/stdout hook protocol (called by your agent)
+    whatran detect              show which test runner would be used
 
   Options
     --base <ref>     compare against a git ref (CI/PR mode) rather than a snapshot
@@ -41,7 +41,7 @@ if (flags.help) { process.stdout.write(HELP); process.exit(0); }
 
 const root = repoRoot();
 if (!root && cmd !== 'help') {
-  fatal('adjuster needs to run inside a git repository (it compares against git state).');
+  fatal('whatran needs to run inside a git repository (it compares against git state).');
 }
 
 try {
@@ -58,7 +58,7 @@ try {
 }
 
 function cmdCheck() {
-  const result = adjust(root, {
+  const result = whatran(root, {
     cwd: process.cwd(),
     baseRef: flags.base,
     runner: flags.runner,
@@ -67,13 +67,13 @@ function cmdCheck() {
 
   if (flags.json) {
     process.stdout.write(renderJson(serialise(result)) + '\n');
-  } else if (!flags.quiet || result.verdict === DENIED) {
+  } else if (!flags.quiet || result.verdict === MISSING) {
     process.stdout.write(renderLedger(result));
   }
 
   if (flags.noFail) process.exit(0);
-  if (result.verdict === DENIED) process.exit(1);
-  if (flags.strict && result.verdict === FLAGGED) process.exit(2);
+  if (result.verdict === MISSING) process.exit(1);
+  if (flags.strict && result.verdict === NOTICE) process.exit(2);
   process.exit(0);
 }
 
@@ -171,6 +171,6 @@ function parseFlags(args) {
 }
 
 function fatal(msg) {
-  process.stderr.write(`\n  adjuster: ${msg}\n\n`);
+  process.stderr.write(`\n  whatran: ${msg}\n\n`);
   process.exit(1);
 }

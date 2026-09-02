@@ -2,7 +2,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import {
   outcomeTransitions, harnessTampering, suiteShrank, verdict, isHarnessFile,
-  DENIED, FLAGGED, ALLOWED,
+  MISSING, NOTICE, INTACT,
 } from '../src/checks.js';
 
 const m = (obj) => new Map(Object.entries(obj));
@@ -11,14 +11,14 @@ const codes = (findings) => findings.map((f) => f.code).sort();
 describe('outcome transitions', () => {
   test('a failing test that becomes skipped is denied', () => {
     const f = outcomeTransitions(m({ a: 'failed' }), m({ a: 'skipped' }));
-    assert.strictEqual(verdict(f), DENIED);
+    assert.strictEqual(verdict(f), MISSING);
     assert.strictEqual(f[0].code, 'failing-test-silenced');
     assert.deepStrictEqual(f[0].evidence, ['a']);
   });
 
   test('a failing test that disappears is denied', () => {
     const f = outcomeTransitions(m({ a: 'failed' }), m({}));
-    assert.strictEqual(verdict(f), DENIED);
+    assert.strictEqual(verdict(f), MISSING);
     assert.strictEqual(f[0].code, 'failing-test-removed');
   });
 
@@ -27,19 +27,19 @@ describe('outcome transitions', () => {
   // tool is unusable.
   test('a PASSING test that becomes skipped is only flagged, never denied', () => {
     const f = outcomeTransitions(m({ a: 'passed' }), m({ a: 'skipped' }));
-    assert.strictEqual(verdict(f), FLAGGED);
+    assert.strictEqual(verdict(f), NOTICE);
     assert.strictEqual(f[0].code, 'passing-test-skipped');
   });
 
   test('a failing test that passes is reported as the honest transition', () => {
     const f = outcomeTransitions(m({ a: 'failed' }), m({ a: 'passed' }));
-    assert.strictEqual(verdict(f), ALLOWED);
+    assert.strictEqual(verdict(f), INTACT);
     assert.strictEqual(f[0].code, 'test-fixed');
   });
 
   test('an unchanged suite produces nothing at all', () => {
     const same = m({ a: 'passed', b: 'failed', c: 'skipped' });
-    assert.deepStrictEqual(outcomeTransitions(same, same).filter((f) => f.level !== ALLOWED), []);
+    assert.deepStrictEqual(outcomeTransitions(same, same).filter((f) => f.level !== INTACT), []);
   });
 
   test('newly added tests are not findings', () => {
@@ -49,7 +49,7 @@ describe('outcome transitions', () => {
 
   test('a passing test that vanishes is flagged, not denied', () => {
     const f = outcomeTransitions(m({ a: 'passed' }), m({}));
-    assert.strictEqual(verdict(f), FLAGGED);
+    assert.strictEqual(verdict(f), NOTICE);
     assert.strictEqual(f[0].code, 'test-vanished');
   });
 
@@ -60,7 +60,7 @@ describe('outcome transitions', () => {
     );
     assert.deepStrictEqual(codes(f),
       ['failing-test-silenced', 'passing-test-skipped', 'test-fixed', 'test-vanished'].sort());
-    assert.strictEqual(verdict(f), DENIED);
+    assert.strictEqual(verdict(f), MISSING);
   });
 });
 
@@ -90,7 +90,7 @@ describe('harness tampering', () => {
   });
 
   test('never denies on its own - editing config is often the point', () => {
-    assert.strictEqual(harnessTampering({}, state({ 'conftest.py': 'x' }))[0].level, FLAGGED);
+    assert.strictEqual(harnessTampering({}, state({ 'conftest.py': 'x' }))[0].level, NOTICE);
   });
 
   for (const file of [

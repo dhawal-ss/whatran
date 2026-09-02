@@ -3,13 +3,13 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { stripNonCode } from './strip.js';
 
-// Severity vocabulary, borrowed from the job the tool is named after.
-// DENIED  — the evidence contradicts the change. Deterministic; no judgement.
-// FLAGGED — worth a look, but legitimate explanations are common.
-// ALLOWED — positive evidence, shown so the tool is not purely negative.
-export const DENIED = 'denied';
-export const FLAGGED = 'flagged';
-export const ALLOWED = 'allowed';
+// What the tool is willing to say, in the order it will say it.
+// MISSING — something that used to run does not run any more. Deterministic.
+// NOTICE  — worth a glance, but legitimate explanations are common.
+// INTACT  — nothing stopped running. Shown so the tool is not purely negative.
+export const MISSING = 'missing';
+export const NOTICE = 'notice';
+export const INTACT = 'intact';
 
 // ---------------------------------------------------------------------------
 // Check 1 — outcome transitions.
@@ -43,7 +43,7 @@ export function outcomeTransitions(base, head) {
 
   if (silenced.length) {
     findings.push({
-      level: DENIED,
+      level: MISSING,
       code: 'failing-test-silenced',
       title: plural(silenced.length, 'failing test was', 'failing tests were') + ' skipped instead of fixed',
       detail: 'These tests were failing before the change and are now not running at all. '
@@ -53,7 +53,7 @@ export function outcomeTransitions(base, head) {
   }
   if (removed.length) {
     findings.push({
-      level: DENIED,
+      level: MISSING,
       code: 'failing-test-removed',
       title: plural(removed.length, 'failing test', 'failing tests') + ' disappeared from the suite',
       detail: 'These tests were failing before the change and are no longer collected — '
@@ -63,7 +63,7 @@ export function outcomeTransitions(base, head) {
   }
   if (vanished.length) {
     findings.push({
-      level: FLAGGED,
+      level: NOTICE,
       code: 'test-vanished',
       title: plural(vanished.length, 'passing test', 'passing tests') + ' no longer collected',
       detail: 'Legitimate after a deliberate deletion or a rename. Worth a glance if you did neither.',
@@ -72,7 +72,7 @@ export function outcomeTransitions(base, head) {
   }
   if (newlySkipped.length) {
     findings.push({
-      level: FLAGGED,
+      level: NOTICE,
       code: 'passing-test-skipped',
       title: plural(newlySkipped.length, 'passing test is', 'passing tests are') + ' now skipped',
       detail: 'Usually a legitimate platform or feature guard. Not treated as a contradiction.',
@@ -81,7 +81,7 @@ export function outcomeTransitions(base, head) {
   }
   if (fixed.length) {
     findings.push({
-      level: ALLOWED,
+      level: INTACT,
       code: 'test-fixed',
       title: plural(fixed.length, 'failing test now passes', 'failing tests now pass'),
       detail: 'The honest transition.',
@@ -105,7 +105,7 @@ const HARNESS_FILES = [
   'phpunit.xml', 'Makefile', 'justfile', 'Taskfile',
   '.mocharc', 'nextest.toml', 'codecov.yml', '.coveragerc',
 ];
-const HARNESS_DIRS = ['.github/workflows/', '.gitlab-ci', '.circleci/', '.adjuster/'];
+const HARNESS_DIRS = ['.github/workflows/', '.gitlab-ci', '.circleci/', '.whatran/'];
 
 export function isHarnessFile(f) {
   const base = f.split('/').pop() ?? '';
@@ -130,7 +130,7 @@ export function harnessTampering(baselineHashes, currentHashes) {
   }
   if (!hits.length) return [];
   return [{
-    level: FLAGGED,
+    level: NOTICE,
     code: 'harness-modified',
     title: 'The test harness itself was modified',
     detail: 'Changing how tests are collected, run, or reported can turn a red suite green '
@@ -168,7 +168,7 @@ export function focusLocks(root, changed) {
   }
   if (!hits.length) return [];
   return [{
-    level: DENIED,
+    level: MISSING,
     code: 'focus-lock',
     title: 'A focused test is disabling the rest of its file',
     detail: 'Under Jest, and under Vitest outside CI, every other test in these files silently '
@@ -192,7 +192,7 @@ export function suiteShrank(base, head, alreadyExplained) {
   const drop = base.size - head.size;
   if (drop <= 0 || alreadyExplained) return [];
   return [{
-    level: FLAGGED,
+    level: NOTICE,
     code: 'suite-shrank',
     title: `The suite collects ${drop} fewer test${drop === 1 ? '' : 's'} than before`,
     detail: `${base.size} before, ${head.size} now. Often a rename; sometimes an import error `
@@ -202,9 +202,9 @@ export function suiteShrank(base, head, alreadyExplained) {
 }
 
 export function verdict(findings) {
-  if (findings.some((f) => f.level === DENIED)) return DENIED;
-  if (findings.some((f) => f.level === FLAGGED)) return FLAGGED;
-  return ALLOWED;
+  if (findings.some((f) => f.level === MISSING)) return MISSING;
+  if (findings.some((f) => f.level === NOTICE)) return NOTICE;
+  return INTACT;
 }
 
 function plural(n, one, many) {

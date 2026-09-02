@@ -36,7 +36,7 @@ const ARTEFACT_DIRS = [
 
 // The baseline itself changes on every snapshot; it must never trigger a run.
 // Agent configuration cannot change a test outcome either.
-const IGNORED_PREFIXES = ['.adjuster/', '.claude/', '.codex/', '.cursor/'];
+const IGNORED_PREFIXES = ['.whatran/', '.claude/', '.codex/', '.cursor/'];
 
 // True when this path could plausibly change a test outcome.
 export function isRelevantFile(f) {

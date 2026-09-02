@@ -2,17 +2,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const MARKER = 'adjuster hook';
+const MARKER = 'whatran hook';
 
 // The hook config has to name a command that will actually resolve months from
 // now, on a machine that may never have installed anything. Writing
-// `npx adjuster` when the package is not published — or is only checked out
+// `npx whatran` when the package is not published — or is only checked out
 // locally — produces a config that silently does nothing, which is worse than
 // one that fails loudly.
 export function hookCommand() {
-  const binPath = fileURLToPath(new URL('../bin/adjuster.js', import.meta.url));
+  const binPath = fileURLToPath(new URL('../bin/whatran.js', import.meta.url));
   const installed = binPath.split(path.sep).includes('node_modules');
-  if (installed) return 'npx --no-install adjuster-cli hook';
+  if (installed) return 'npx --no-install whatran hook';
   // Running from a clone: point straight at this checkout with the interpreter
   // that is running right now. Absolute, dependency-free, always resolves.
   return `${quote(process.execPath)} ${quote(binPath)} hook`;
@@ -68,7 +68,7 @@ const TARGETS = [
       doc.hooks ??= {};
       // Cursor's stop hook cannot block; it re-prompts instead.
       doc.hooks.stop ??= [];
-      if (!JSON.stringify(doc.hooks.stop).includes('adjuster')) {
+      if (!JSON.stringify(doc.hooks.stop).includes('whatran')) {
         doc.hooks.stop.push({ command: hookCommand() });
       }
       return doc;
@@ -78,7 +78,7 @@ const TARGETS = [
 
 function addHook(hooks, event, entry) {
   hooks[event] ??= [];
-  if (JSON.stringify(hooks[event]).includes('adjuster')) return;
+  if (JSON.stringify(hooks[event]).includes('whatran')) return;
   hooks[event].push(entry);
 }
 
@@ -98,7 +98,7 @@ export function installHooks(root) {
         out.push(`! ${t.file} exists but is not valid JSON — left untouched`);
         continue;
       }
-      if (JSON.stringify(existing).includes('adjuster')) {
+      if (JSON.stringify(existing).includes('whatran')) {
         out.push(`· ${t.label} hook already installed`);
         continue;
       }
@@ -120,25 +120,25 @@ export function uninstallHooks(root) {
     let doc;
     try { doc = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { continue; }
     const before = JSON.stringify(doc);
-    stripAdjuster(doc);
+    stripwhatran(doc);
     const after = JSON.stringify(doc);
     if (before !== after) {
       fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n');
       out.push(`- ${t.label} hook removed (${t.file})`);
     }
   }
-  if (!out.length) out.push('· no adjuster hooks found');
+  if (!out.length) out.push('· no whatran hooks found');
   return out;
 }
 
-function stripAdjuster(node) {
+function stripwhatran(node) {
   if (Array.isArray(node)) {
     for (let i = node.length - 1; i >= 0; i--) {
-      if (JSON.stringify(node[i]).includes('adjuster')) node.splice(i, 1);
-      else stripAdjuster(node[i]);
+      if (JSON.stringify(node[i]).includes('whatran')) node.splice(i, 1);
+      else stripwhatran(node[i]);
     }
   } else if (node && typeof node === 'object') {
-    for (const v of Object.values(node)) stripAdjuster(v);
+    for (const v of Object.values(node)) stripwhatran(v);
   }
 }
 
@@ -146,7 +146,7 @@ function ensureGitignore(root, out) {
   const gi = path.join(root, '.gitignore');
   let text = '';
   try { text = fs.readFileSync(gi, 'utf8'); } catch { /* none yet */ }
-  if (text.split(/\r?\n/).some((l) => l.trim() === '.adjuster/' || l.trim() === '.adjuster')) return;
-  fs.writeFileSync(gi, (text && !text.endsWith('\n') ? text + '\n' : text) + `\n# ${MARKER} — local baseline, not shared\n.adjuster/\n`);
-  out.push('+ .adjuster/ added to .gitignore');
+  if (text.split(/\r?\n/).some((l) => l.trim() === '.whatran/' || l.trim() === '.whatran')) return;
+  fs.writeFileSync(gi, (text && !text.endsWith('\n') ? text + '\n' : text) + `\n# ${MARKER} — local baseline, not shared\n.whatran/\n`);
+  out.push('+ .whatran/ added to .gitignore');
 }

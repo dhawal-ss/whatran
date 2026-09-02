@@ -3,7 +3,7 @@ import path from 'node:path';
 import { runSuite, summarise } from './run.js';
 import { addWorktree, removeWorktree, head as gitHead } from './git.js';
 
-export const DIR = '.adjuster';
+export const DIR = '.whatran';
 export const FILE = 'baseline.json';
 const VERSION = 2; // 2 adds recorded harness-file hashes
 
@@ -60,7 +60,7 @@ export function captureFromRef(root, ref, runner, { link = true, projectDir = ro
         reason: `this project is installed in editable mode (${editable.venv}/…/${editable.marker}), `
           + 'so a baseline run in a worktree would import the current source rather than the '
           + 'source at that ref, and every difference would silently disappear. Use '
-          + '`adjuster snapshot` before the change instead of --base.',
+          + '`whatran snapshot` before the change instead of --base.',
       };
     }
   }

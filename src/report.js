@@ -1,4 +1,4 @@
-import { DENIED, FLAGGED, ALLOWED } from './checks.js';
+import { MISSING, NOTICE, INTACT } from './checks.js';
 
 const useColour = process.stdout.isTTY && !process.env.NO_COLOR && process.env.TERM !== 'dumb';
 const ESC = String.fromCharCode(27);
@@ -6,9 +6,9 @@ const c = (code) => (s) => (useColour ? ESC + `[${code}m` + s + ESC + `[0m` : s)
 const red = c('31'), yellow = c('33'), green = c('32'), dim = c('2'), bold = c('1');
 
 const MARK = {
-  [DENIED]: () => red('DENIED '),
-  [FLAGGED]: () => yellow('FLAGGED'),
-  [ALLOWED]: () => green('ALLOWED'),
+  [MISSING]: () => red('MISSING'),
+  [NOTICE]: () => yellow('NOTICE '),
+  [INTACT]: () => green('INTACT '),
 };
 
 const MAX_EVIDENCE = 8;
@@ -26,9 +26,9 @@ export function renderLedger({ findings, verdict, summary, baseSummary, runner, 
     return lines.join('\n');
   }
 
-  const denied = findings.filter((f) => f.level === DENIED);
-  const flagged = findings.filter((f) => f.level === FLAGGED);
-  const allowed = findings.filter((f) => f.level === ALLOWED);
+  const denied = findings.filter((f) => f.level === MISSING);
+  const flagged = findings.filter((f) => f.level === NOTICE);
+  const allowed = findings.filter((f) => f.level === INTACT);
 
   lines.push('');
   for (const f of [...denied, ...flagged, ...allowed]) {
@@ -44,7 +44,7 @@ export function renderLedger({ findings, verdict, summary, baseSummary, runner, 
   }
 
   if (!findings.length) {
-    lines.push(`  ${green('ALLOWED')}  Nothing stopped running.`);
+    lines.push(`  ${green('INTACT ')}  Nothing stopped running.`);
     lines.push('');
   }
 
@@ -66,7 +66,7 @@ function describeSuite(before, after) {
 // instruction to the agent, not as a report to a human: it has to be actionable
 // by whatever is reading it next.
 export function renderAgentFeedback(findings) {
-  const denied = findings.filter((f) => f.level === DENIED);
+  const denied = findings.filter((f) => f.level === MISSING);
   if (!denied.length) return '';
   const parts = ['Verification failed. Your change removed test coverage that existed before:'];
   for (const f of denied) {

@@ -9,7 +9,7 @@ import path from 'node:path';
 // the tests failed. That distinction is the whole reason this tool can be left
 // switched on: an environment problem must never be reported as a lie.
 export function runSuite(runner, cwd, { timeoutMs = 15 * 60 * 1000, env = {} } = {}) {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'adjuster-'));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'whatran-'));
   const outFile = path.join(tmp, 'report' + runner.outExt);
   const spec = runner.command(outFile, cwd);
 
