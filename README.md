@@ -78,6 +78,20 @@ missing, if a worktree can't be built — it says so and stays out of your way.
 That distinction is the whole reason you can leave it switched on. A tool that cries wolf on a
 broken import gets uninstalled the same afternoon.
 
+**It will not blame your change for a flaky test.** If an accusation is about to be made, the
+suite runs a second time and only what happens twice is reported. And if nothing that could
+affect a test was edited at all, an outcome that moved is flakiness by definition — no change,
+no regression. Tests caught doing this are remembered and excluded from future accusations until
+you next run `whatran accept` or `whatran snapshot`.
+
+```
+  NOTICE   1 test changed outcome with no relevant edit
+            Nothing that could affect a test was touched, so this is flakiness or an
+            order dependency rather than anything your change did.
+```
+
+The second run only happens when something was actually found, so a clean turn costs nothing.
+
 **It will not flag a passing test that becomes skipped.**
 `@pytest.mark.skipif(sys.platform == "win32")` is a legitimate guard, not a cover-up — and tools
 that grep diffs for skip markers fire on every one of them.
@@ -103,12 +117,24 @@ merely guessed at from a stray file. Override with `--runner <id>`.
 ```bash
 npx whatran                  # check the working tree against the remembered state
 npx whatran snapshot         # remember the current suite
+npx whatran accept           # accept the current state as the new normal
 npx whatran check --base main    # CI mode: compare against a git ref instead
 npx whatran detect           # show which runner would be used
 npx whatran uninstall        # remove the hooks
 ```
 
-Exit codes: `0` fine or inconclusive, `1` something is missing, `2` notices only (with `--strict`).
+Exit codes: `0` fine or inconclusive, `1` something is missing or broke, `2` notices only (with `--strict`).
+
+**`whatran accept`** is the escape hatch. Deleted a genuinely obsolete test? Accept it, and
+whatran says plainly what it just agreed to before it stops mentioning it:
+
+```
+  Accepted — pytest
+  This is now the expected state:
+    · 1 failing test disappeared from the suite
+        test_auth::test_expired_token_rejected
+  2 tests: 2 passed, 0 failed, 0 skipped
+```
 
 ### In CI
 
@@ -177,7 +203,7 @@ than be silently skipped.
 ## Development
 
 ```bash
-npm test        # 98 unit and integration tests, no dependencies
+npm test        # 108 unit and integration tests, no dependencies
 ```
 
 ## Licence

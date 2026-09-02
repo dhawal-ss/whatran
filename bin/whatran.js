@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import process from 'node:process';
 import { repoRoot } from '../src/git.js';
-import { whatran, snapshot, pickRunner, projectDirFor, NOTICE } from '../src/whatran.js';
+import { whatran, snapshot, accept, pickRunner, projectDirFor, NOTICE } from '../src/whatran.js';
 import { isFailing } from '../src/checks.js';
 import { renderLedger, renderJson } from '../src/report.js';
 import { runHook } from '../src/hook.js';
@@ -14,6 +14,7 @@ const HELP = `
   Usage
     whatran                     check the working tree against the recorded baseline
     whatran snapshot            record the current suite as the baseline
+    whatran accept              accept the current state as the new normal
     whatran check [--base REF]  check; with --base, compare against a git ref instead
     whatran init                snapshot + install the agent hook for this repo
     whatran uninstall           remove the agent hook
@@ -49,6 +50,7 @@ try {
   switch (cmd) {
     case 'hook': await cmdHook(); break;
     case 'snapshot': cmdSnapshot(); break;
+    case 'accept': cmdAccept(); break;
     case 'init': cmdInit(); break;
     case 'uninstall': cmdUninstall(); break;
     case 'detect': cmdDetect(); break;
@@ -174,4 +176,32 @@ function parseFlags(args) {
 function fatal(msg) {
   process.stderr.write(`\n  whatran: ${msg}\n\n`);
   process.exit(1);
+}
+
+function cmdAccept() {
+  const res = accept(root, {
+    cwd: process.cwd(),
+    runner: flags.runner,
+    timeoutMs: flags.timeout ? flags.timeout * 1000 : undefined,
+  });
+  if (!res.ok) fatal(res.reason);
+  if (flags.json) { process.stdout.write(renderJson(res) + '\n'); return; }
+
+  const s = res.summary;
+  process.stdout.write(`\n  Accepted — ${res.runner}\n`);
+  if (!res.hadBaseline) {
+    process.stdout.write('  There was nothing recorded before, so this is simply the new baseline.\n');
+  } else if (!res.accepted.length) {
+    process.stdout.write('  Nothing had changed; the baseline is refreshed.\n');
+  } else {
+    process.stdout.write('  This is now the expected state:\n');
+    for (const f of res.accepted) {
+      process.stdout.write(`    · ${f.title}\n`);
+      for (const e of f.evidence.slice(0, 8)) process.stdout.write(`        ${e}\n`);
+      if (f.evidence.length > 8) process.stdout.write(`        …and ${f.evidence.length - 8} more\n`);
+    }
+  }
+  process.stdout.write(
+    `  ${s.total} tests: ${s.passed} passed, ${s.failed} failed, ${s.skipped} skipped\n\n`,
+  );
 }

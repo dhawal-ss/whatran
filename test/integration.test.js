@@ -178,3 +178,39 @@ describe('committed work', () => {
     } finally { rollback(); }
   });
 });
+
+describe('accept', () => {
+  test('accepts a deliberate removal and then stays quiet', async () => {
+    const { accept } = await import('../src/whatran.js');
+    reset();
+    // Remove the failing test on purpose.
+    write('test/sum.test.js', TESTS.replace(
+      "test('product multiplies', () => { assert.strictEqual(product(2, 3), 6); });\n", ''));
+
+    const before = whatran(repo, { runner: 'node-test' });
+    assert.strictEqual(before.verdict, MISSING, 'should object first');
+
+    const acc = accept(repo, { runner: 'node-test' });
+    assert.ok(acc.ok, acc.reason);
+    assert.ok(acc.accepted.some((f) => f.code === 'failing-test-removed'),
+      'accept must state what it accepted: ' + JSON.stringify(acc.accepted));
+
+    const after = whatran(repo, { runner: 'node-test' });
+    assert.notStrictEqual(after.verdict, MISSING, 'should be quiet afterwards');
+
+    // Put the fixture back the way the other tests expect it.
+    reset();
+    snapshot(repo, { runner: 'node-test' });
+  });
+
+  test('accept clears the unstable ledger so nothing is exempt forever', async () => {
+    const { accept } = await import('../src/whatran.js');
+    const { loadBaseline } = await import('../src/baseline.js');
+    reset();
+    const acc = accept(repo, { runner: 'node-test' });
+    assert.ok(acc.ok, acc.reason);
+    assert.deepStrictEqual(loadBaseline(repo).unstable, []);
+    reset();
+    snapshot(repo, { runner: 'node-test' });
+  });
+});

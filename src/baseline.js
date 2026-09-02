@@ -5,13 +5,13 @@ import { addWorktree, removeWorktree, head as gitHead } from './git.js';
 
 export const DIR = '.whatran';
 export const FILE = 'baseline.json';
-const VERSION = 2; // 2 adds recorded harness-file hashes
+const VERSION = 3; // 2 added harness hashes; 3 adds the unstable-test ledger
 
 export function baselinePath(root) {
   return path.join(root, DIR, FILE);
 }
 
-export function saveBaseline(root, { runner, outcomes, ref, harness }) {
+export function saveBaseline(root, { runner, outcomes, ref, harness, unstable }) {
   const dir = path.join(root, DIR);
   fs.mkdirSync(dir, { recursive: true });
   // The baseline is a machine artefact tied to one checkout. Committing it
@@ -26,6 +26,10 @@ export function saveBaseline(root, { runner, outcomes, ref, harness }) {
     runner,
     summary: summarise(outcomes),
     harness: harness ? Object.fromEntries(harness) : {},
+    // Tests observed to change outcome without any code change. Recorded so a
+    // known-flaky test is reported once and then stays quiet, rather than
+    // producing a fresh accusation on every run.
+    unstable: unstable ? [...unstable] : [],
     outcomes: Object.fromEntries(outcomes),
   };
   fs.writeFileSync(baselinePath(root), JSON.stringify(payload, null, 2) + '\n');
@@ -145,4 +149,21 @@ function sitePackages(venvRoot) {
   } catch { /* no posix lib dir */ }
   for (const c of candidates) if (fs.existsSync(c)) out.push(c);
   return out;
+}
+
+// Updates only the unstable ledger, leaving the recorded outcomes alone. A
+// check that discovers flakiness should remember it without silently moving
+// the baseline it is measuring against.
+export function recordUnstable(root, unstable) {
+  const doc = loadBaseline(root);
+  if (!doc) return false;
+  const payload = {
+    ...doc,
+    outcomes: Object.fromEntries(doc.outcomes),
+    unstable: [...new Set(unstable)],
+  };
+  try {
+    fs.writeFileSync(baselinePath(root), JSON.stringify(payload, null, 2) + '\n');
+    return true;
+  } catch { return false; }
 }

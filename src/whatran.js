@@ -1,13 +1,15 @@
 import { resolveProject } from './project.js';
 import { runSuite, summarise } from './run.js';
-import { loadBaseline, captureFromRef, saveBaseline } from './baseline.js';
+import { loadBaseline, captureFromRef, saveBaseline, recordUnstable } from './baseline.js';
 import { changedFiles, head as gitHead, mergeBase, listFiles, listFilesAtRef, fileAtRef } from './git.js';
 import {
   outcomeTransitions, harnessTampering, focusLocks, suiteShrank, verdict,
   collectHarnessState, isHarnessFile, assertionFreeTests,
-  MISSING, BROKE, NOTICE, INTACT,
+  MISSING, BROKE, NOTICE, INTACT, FAILING_LEVELS,
 } from './checks.js';
 import { newTestsWithoutAssertions } from './oracle.js';
+import { confirmFindings, dropKnownUnstable } from './confirm.js';
+import { relevantChanges } from './relevance.js';
 import { createHash } from 'node:crypto';
 import fsMod from 'node:fs';
 import pathMod from 'node:path';
@@ -38,6 +40,7 @@ export function whatran(root, opts = {}) {
   let baseSource = null;
   let baselineHarness = null;
   let sinceRef = null;
+  let knownUnstable = [];
   if (opts.baseRef) {
     const ref = mergeBase(root, opts.baseRef);
     const cap = captureFromRef(root, ref, runner, { projectDir });
@@ -66,6 +69,7 @@ export function whatran(root, opts = {}) {
     // Work the agent committed since the snapshot must be visible to the
     // file-based checks, not just what is still sitting in the working tree.
     sinceRef = saved.ref ?? null;
+    knownUnstable = saved.unstable ?? [];
     baseSource = `snapshot ${saved.createdAt}`;
   }
 
@@ -98,8 +102,58 @@ export function whatran(root, opts = {}) {
   // --- checks --------------------------------------------------------------
   // Includes work the agent committed, not just what is still in the tree.
   const changed = changedFiles(root, opts.sinceRef ?? sinceRef);
+
+  // Tests already known to be unstable are excluded before anything is claimed.
+  let outcomeFindings = dropKnownUnstable(outcomeTransitions(base, now.outcomes), knownUnstable);
+
+  // If nothing that could affect a test outcome changed, then a "regression"
+  // is impossible by construction: whatever moved, this change did not move it.
+  // A confirmation run cannot establish that — two runs of a coin-flip test
+  // agree a quarter of the time — but the absence of any relevant edit can, and
+  // it costs nothing.
+  const relevant = relevantChanges(root, sinceRef);
+  const nothingChanged = relevant !== null && relevant.length === 0;
+  if (nothingChanged && outcomeFindings.some((f) => FAILING_LEVELS.has(f.level))) {
+    const moved = outcomeFindings
+      .filter((f) => FAILING_LEVELS.has(f.level))
+      .flatMap((f) => f.evidence);
+    knownUnstable = [...new Set([...knownUnstable, ...moved])];
+    recordUnstable(projectDir, knownUnstable);
+    outcomeFindings = dropKnownUnstable(outcomeFindings, knownUnstable);
+    outcomeFindings.push({
+      level: NOTICE,
+      code: 'unstable-test',
+      title: plural(moved.length, 'test changed outcome', 'tests changed outcome')
+        + ' with no relevant edit',
+      detail: 'Nothing that could affect a test was touched, so this is flakiness or an order '
+        + 'dependency rather than anything your change did.',
+      evidence: moved,
+    });
+  }
+
+  // Then, only if an accusation survived, get a second opinion.
+  let confirmed = false;
+  let unstable = knownUnstable;
+  if (!opts.noConfirm) {
+    const c = confirmFindings({
+      findings: outcomeFindings,
+      base,
+      headOutcomes: now.outcomes,
+      runner,
+      projectDir,
+      timeoutMs: opts.timeoutMs,
+      knownUnstable,
+    });
+    outcomeFindings = c.findings;
+    unstable = c.unstable;
+    confirmed = c.confirmed;
+    if (confirmed && unstable.length !== knownUnstable.length) {
+      recordUnstable(projectDir, unstable);
+    }
+  }
+
   const findings = [
-    ...outcomeTransitions(base, now.outcomes),
+    ...outcomeFindings,
     ...focusLocks(root, changed),
     ...harnessTampering(baselineHarness, collectHarnessState(root, () => listFiles(root))),
     // Needs a ref to diff against — without one, every test looks new.
@@ -124,6 +178,7 @@ export function whatran(root, opts = {}) {
     summary: summarise(now.outcomes),
     baseSummary: summarise(base),
     suiteExitCode: now.exitCode,
+    confirmed,
     elapsedMs: Date.now() - started,
   };
 
@@ -179,4 +234,46 @@ function harnessStateAtRef(root, ref) {
     state[rel] = createHash('sha1').update(body, 'utf8').digest('hex').slice(0, 16);
   }
   return state;
+}
+
+// Re-records the baseline from the current state, and says plainly what that
+// changed. Without this there is no way to tell whatran "yes, that was
+// deliberate" — deleting a genuinely obsolete test would mean being nagged
+// until someone thought to re-run `snapshot`. Every linter needs an escape
+// hatch; without one people switch the tool off rather than argue with it.
+export function accept(root, opts = {}) {
+  const { runner, dir: projectDir } = resolveProject(opts.cwd ?? root, root, opts.runner);
+  if (!runner) return { ok: false, reason: 'no supported test runner detected in this repository' };
+
+  const previous = loadBaseline(projectDir);
+  const res = runSuite(runner, projectDir, { timeoutMs: opts.timeoutMs });
+  if (!res.ok) return { ok: false, reason: res.reason, runner: runner.label };
+
+  // What is being accepted, described before it stops being visible.
+  const accepted = previous
+    ? outcomeTransitions(previous.outcomes, res.outcomes)
+        .filter((f) => f.level !== INTACT)
+    : [];
+
+  const saved = saveBaseline(projectDir, {
+    runner: runner.id,
+    outcomes: res.outcomes,
+    ref: gitHead(root),
+    harness: collectHarnessState(root, () => listFiles(root)),
+    // An accepted baseline starts clean: a test previously judged unstable gets
+    // another chance to prove itself, rather than being exempt forever.
+    unstable: [],
+  });
+
+  return {
+    ok: true,
+    runner: runner.label,
+    summary: saved.summary,
+    accepted,
+    hadBaseline: Boolean(previous),
+  };
+}
+
+function plural(n, one, many) {
+  return `${n} ${n === 1 ? one : many}`;
 }
