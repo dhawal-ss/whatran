@@ -58,6 +58,13 @@ export function whatran(root, opts = {}) {
         { runner: runner.label },
       );
     }
+    if (saved.stale) {
+      return inconclusive(
+        `the recorded baseline is unusable (${saved.stale}) — it was probably written by an `
+        + 'older whatran. Run `whatran snapshot` to record a fresh one.',
+        { runner: runner.label },
+      );
+    }
     if (saved.runner !== runner.id) {
       return inconclusive(
         `the baseline was recorded with ${saved.runner} but ${runner.id} was detected now`,
@@ -245,7 +252,8 @@ export function accept(root, opts = {}) {
   const { runner, dir: projectDir } = resolveProject(opts.cwd ?? root, root, opts.runner);
   if (!runner) return { ok: false, reason: 'no supported test runner detected in this repository' };
 
-  const previous = loadBaseline(projectDir);
+  const loaded = loadBaseline(projectDir);
+  const previous = loaded && !loaded.stale ? loaded : null;
   const res = runSuite(runner, projectDir, { timeoutMs: opts.timeoutMs });
   if (!res.ok) return { ok: false, reason: res.reason, runner: runner.label };
 

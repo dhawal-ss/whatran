@@ -11,6 +11,22 @@ export function baselinePath(root) {
   return path.join(root, DIR, FILE);
 }
 
+// `check` now writes to the baseline (the unstable ledger), so a run that is
+// interrupted mid-write must not leave a half-written file behind. Write to a
+// sibling and rename — rename is atomic on the same filesystem, so a reader
+// sees either the old file or the new one, never a truncated one.
+function writeAtomic(file, body) {
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, body);
+  try {
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    // Windows will refuse a rename over a file another process has open.
+    try { fs.rmSync(tmp, { force: true }); } catch { /* ignore */ }
+    throw err;
+  }
+}
+
 export function saveBaseline(root, { runner, outcomes, ref, harness, unstable }) {
   const dir = path.join(root, DIR);
   fs.mkdirSync(dir, { recursive: true });
@@ -32,7 +48,7 @@ export function saveBaseline(root, { runner, outcomes, ref, harness, unstable })
     unstable: unstable ? [...unstable] : [],
     outcomes: Object.fromEntries(outcomes),
   };
-  fs.writeFileSync(baselinePath(root), JSON.stringify(payload, null, 2) + '\n');
+  writeAtomic(baselinePath(root), JSON.stringify(payload, null, 2) + '\n');
   return payload;
 }
 
@@ -40,8 +56,12 @@ export function loadBaseline(root) {
   let raw;
   try { raw = fs.readFileSync(baselinePath(root), 'utf8'); } catch { return null; }
   let doc;
-  try { doc = JSON.parse(raw); } catch { return null; }
-  if (doc.version !== VERSION || !doc.outcomes) return null;
+  try { doc = JSON.parse(raw); } catch { return { stale: 'unreadable' }; }
+  if (!doc.outcomes) return { stale: 'unreadable' };
+  // A baseline written by an older version is not the same thing as no
+  // baseline at all, and saying "none recorded yet" when one is plainly sitting
+  // there is the kind of message that makes people distrust the whole tool.
+  if (doc.version !== VERSION) return { stale: `version ${doc.version}` };
   doc.outcomes = new Map(Object.entries(doc.outcomes));
   return doc;
 }
@@ -163,7 +183,7 @@ export function recordUnstable(root, unstable) {
     unstable: [...new Set(unstable)],
   };
   try {
-    fs.writeFileSync(baselinePath(root), JSON.stringify(payload, null, 2) + '\n');
+    writeAtomic(baselinePath(root), JSON.stringify(payload, null, 2) + '\n');
     return true;
   } catch { return false; }
 }

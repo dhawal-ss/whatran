@@ -145,6 +145,9 @@ function serialise(r) {
     baseSource: r.baseSource,
     summary: r.summary,
     baseSummary: r.baseSummary,
+    // Whether a second run confirmed the findings. CI consumers should know
+    // the difference between "checked twice" and "seen once".
+    confirmed: r.confirmed ?? false,
     elapsedMs: r.elapsedMs,
     findings: r.findings.map((f) => ({
       level: f.level, code: f.code, title: f.title, detail: f.detail, evidence: f.evidence,

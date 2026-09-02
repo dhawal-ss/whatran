@@ -58,6 +58,7 @@ function handleSessionStart(root) {
   const existing = loadBaseline(projectDirFor(root, null, process.cwd()));
   const current = gitHead(root);
   const fresh = existing
+    && !existing.stale
     && existing.ref === current
     && Date.now() - Date.parse(existing.createdAt) < STALE_MS;
   if (fresh) return 0;
