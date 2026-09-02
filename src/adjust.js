@@ -1,4 +1,4 @@
-import { detectRunners, getRunner } from './runners.js';
+import { resolveProject } from './project.js';
 import { runSuite, summarise } from './run.js';
 import { loadBaseline, captureFromRef, saveBaseline } from './baseline.js';
 import { changedFiles, head as gitHead, mergeBase, listFiles, listFilesAtRef, fileAtRef } from './git.js';
@@ -10,21 +10,21 @@ import { createHash } from 'node:crypto';
 
 export { DENIED, FLAGGED, ALLOWED };
 
-export function pickRunner(root, explicit) {
-  if (explicit) {
-    const r = getRunner(explicit);
-    if (!r) throw new Error(`unknown runner "${explicit}"`);
-    return r;
-  }
-  const found = detectRunners(root);
-  return found[0] ?? null;
+export function pickRunner(root, explicit, cwd = root) {
+  return resolveProject(cwd, root, explicit).runner;
+}
+
+// Where the suite runs and where its baseline lives. Not necessarily the git
+// root — see project.js.
+export function projectDirFor(root, explicit, cwd = root) {
+  return resolveProject(cwd, root, explicit).dir;
 }
 
 // The single entry point. Returns a structured result; rendering lives elsewhere
 // so the CLI, the JSON output and the agent hook all agree on the facts.
 export function adjust(root, opts = {}) {
   const started = Date.now();
-  const runner = pickRunner(root, opts.runner);
+  const { runner, dir: projectDir } = resolveProject(opts.cwd ?? root, root, opts.runner);
   if (!runner) {
     return inconclusive('no supported test runner detected in this repository', { root });
   }
@@ -36,14 +36,14 @@ export function adjust(root, opts = {}) {
   let sinceRef = null;
   if (opts.baseRef) {
     const ref = mergeBase(root, opts.baseRef);
-    const cap = captureFromRef(root, ref, runner);
+    const cap = captureFromRef(root, ref, runner, { projectDir });
     if (!cap.ok) return inconclusive(cap.reason, { runner: runner.label });
     base = cap.outcomes;
     baselineHarness = harnessStateAtRef(root, ref);
     sinceRef = ref;
     baseSource = `${opts.baseRef} (${ref.slice(0, 8)})`;
   } else {
-    const saved = loadBaseline(root);
+    const saved = loadBaseline(projectDir);
     if (!saved) {
       return inconclusive(
         'no baseline recorded yet — run `adjuster snapshot` on a known-good tree first, '
@@ -66,7 +66,7 @@ export function adjust(root, opts = {}) {
   }
 
   // --- run the suite as it stands now --------------------------------------
-  const now = runSuite(runner, root, { timeoutMs: opts.timeoutMs });
+  const now = runSuite(runner, projectDir, { timeoutMs: opts.timeoutMs });
   if (!now.ok) {
     return inconclusive(now.reason, { runner: runner.label });
   }
@@ -144,13 +144,13 @@ export function adjust(root, opts = {}) {
 // with red tests is the interesting case, because it is the one an agent is
 // about to be asked to fix.
 export function snapshot(root, opts = {}) {
-  const runner = pickRunner(root, opts.runner);
+  const { runner, dir: projectDir } = resolveProject(opts.cwd ?? root, root, opts.runner);
   if (!runner) return { ok: false, reason: 'no supported test runner detected in this repository' };
 
-  const res = runSuite(runner, root, { timeoutMs: opts.timeoutMs });
+  const res = runSuite(runner, projectDir, { timeoutMs: opts.timeoutMs });
   if (!res.ok) return { ok: false, reason: res.reason, runner: runner.label };
 
-  const saved = saveBaseline(root, {
+  const saved = saveBaseline(projectDir, {
     runner: runner.id,
     outcomes: res.outcomes,
     ref: gitHead(root),

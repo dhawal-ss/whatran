@@ -26,10 +26,11 @@ export const RUNNERS = [
     label: 'pytest',
     lang: 'python',
     detect(root) {
-      if (exists(root, 'pytest.ini') || exists(root, 'conftest.py')) return true;
-      if (/\[tool\.pytest/.test(read(path.join(root, 'pyproject.toml')))) return true;
-      if (/\[(tool:)?pytest\]/.test(read(path.join(root, 'setup.cfg')) + read(path.join(root, 'tox.ini')))) return true;
-      return hasTestFiles(root, /^test_.*\.py$|.*_test\.py$/);
+      if (/pytest/.test(testScript(root))) return CONFIDENCE.DECLARED;
+      if (exists(root, 'pytest.ini') || exists(root, 'conftest.py')) return CONFIDENCE.CONFIGURED;
+      if (/\[tool\.pytest/.test(read(path.join(root, 'pyproject.toml')))) return CONFIDENCE.CONFIGURED;
+      if (/\[(tool:)?pytest\]/.test(read(path.join(root, 'setup.cfg')) + read(path.join(root, 'tox.ini')))) return CONFIDENCE.CONFIGURED;
+      return hasTestFiles(root, /^test_.*\.py$|.*_test\.py$/) ? CONFIDENCE.GUESSED : CONFIDENCE.NONE;
     },
     command(outFile) {
       return { cmd: pythonBin(), args: ['-m', 'pytest', '-q', '--junitxml=' + outFile] };
@@ -47,12 +48,13 @@ export const RUNNERS = [
     label: 'Vitest',
     lang: 'js',
     detect(root) {
-      const pkg = pkgJson(root);
-      if (hasDep(pkg, 'vitest')) return true;
-      return ['vitest.config.ts', 'vitest.config.js', 'vitest.config.mjs'].some((f) => exists(root, f));
+      if (/vitest/.test(testScript(root))) return CONFIDENCE.DECLARED;
+      if (hasDep(pkgJson(root), 'vitest')) return CONFIDENCE.CONFIGURED;
+      return ['vitest.config.ts', 'vitest.config.js', 'vitest.config.mjs'].some((f) => exists(root, f))
+        ? CONFIDENCE.CONFIGURED : CONFIDENCE.NONE;
     },
-    command(outFile) {
-      return { cmd: npxBin(), args: ['--no-install', 'vitest', 'run', '--reporter=json', '--outputFile=' + outFile] };
+    command(outFile, root) {
+      return nodeTool(root, 'vitest', ['run', '--reporter=json', '--outputFile=' + outFile]);
     },
     parse: (outFile) => parseJestJson(read(outFile)),
     outExt: '.json',
@@ -63,13 +65,14 @@ export const RUNNERS = [
     label: 'Jest',
     lang: 'js',
     detect(root) {
+      if (/jest/.test(testScript(root))) return CONFIDENCE.DECLARED;
       const pkg = pkgJson(root);
-      if (hasDep(pkg, 'jest')) return true;
-      if (pkg?.jest) return true;
-      return ['jest.config.js', 'jest.config.ts', 'jest.config.mjs', 'jest.config.json'].some((f) => exists(root, f));
+      if (hasDep(pkg, 'jest') || pkg?.jest) return CONFIDENCE.CONFIGURED;
+      return ['jest.config.js', 'jest.config.ts', 'jest.config.mjs', 'jest.config.json'].some((f) => exists(root, f))
+        ? CONFIDENCE.CONFIGURED : CONFIDENCE.NONE;
     },
-    command(outFile) {
-      return { cmd: npxBin(), args: ['--no-install', 'jest', '--ci', '--json', '--outputFile=' + outFile] };
+    command(outFile, root) {
+      return nodeTool(root, 'jest', ['--ci', '--json', '--outputFile=' + outFile]);
     },
     parse: (outFile) => parseJestJson(read(outFile)),
     outExt: '.json',
@@ -79,7 +82,7 @@ export const RUNNERS = [
     id: 'go',
     label: 'go test',
     lang: 'go',
-    detect: (root) => exists(root, 'go.mod'),
+    detect: (root) => (exists(root, 'go.mod') ? CONFIDENCE.CONFIGURED : CONFIDENCE.NONE),
     command() {
       return { cmd: 'go', args: ['test', '-json', './...'], captureStdout: true };
     },
@@ -92,9 +95,7 @@ export const RUNNERS = [
     label: 'node:test',
     lang: 'js',
     detect(root) {
-      const pkg = pkgJson(root);
-      if (!pkg) return false;
-      return /node\s+--test|node:test/.test(pkg.scripts?.test ?? '');
+      return /node\s+--test|node:test/.test(testScript(root)) ? CONFIDENCE.DECLARED : CONFIDENCE.NONE;
     },
     command(outFile) {
       return {
@@ -112,7 +113,7 @@ export const RUNNERS = [
     lang: 'rust',
     // Plain `cargo test -- --format json` is still nightly-gated, so nextest's
     // stable JUnit output is the only dependable machine-readable path in Rust.
-    detect: (root) => exists(root, 'Cargo.toml'),
+    detect: (root) => (exists(root, 'Cargo.toml') ? CONFIDENCE.CONFIGURED : CONFIDENCE.NONE),
     command(outFile) {
       return {
         cmd: 'cargo',
@@ -126,6 +127,17 @@ export const RUNNERS = [
     testGlobs: [/(^|\/)tests?\//, /\.rs$/],
   },
 ];
+
+// Evidence strength. A runner named in the project's own test script is a
+// statement of intent; a stray file matching a pattern three folders down is a
+// guess. Treating them as equal made a Vitest app with some Python infra
+// scripts detect as a pytest project.
+export const CONFIDENCE = { DECLARED: 3, CONFIGURED: 2, GUESSED: 1, NONE: 0 };
+
+function testScript(root) {
+  const pkg = pkgJson(root);
+  return pkg?.scripts?.test ?? '';
+}
 
 function hasTestFiles(root, re, depth = 3) {
   const stack = [[root, 0]];
@@ -146,14 +158,49 @@ function hasTestFiles(root, re, depth = 3) {
 function pythonBin() {
   return process.platform === 'win32' ? 'python' : 'python3';
 }
-function npxBin() {
-  return process.platform === 'win32' ? 'npx.cmd' : 'npx';
+
+// Resolve a locally installed tool's own JS entry point and run it with the
+// current Node binary.
+//
+// The obvious alternative, `npx <tool>`, resolves to `npx.cmd` on Windows —
+// and since the CVE-2024-27980 fix Node refuses to spawn .cmd or .bat without
+// a shell, so it fails with EINVAL and no output at all. Going straight to the
+// script sidesteps shells entirely and is faster besides.
+function localTool(root, pkgName) {
+  try {
+    const pkgDir = path.join(root, 'node_modules', pkgName);
+    const meta = JSON.parse(read(path.join(pkgDir, 'package.json')));
+    let rel = meta.bin;
+    if (rel && typeof rel === 'object') rel = rel[pkgName] ?? Object.values(rel)[0];
+    if (typeof rel !== 'string') return null;
+    const abs = path.join(pkgDir, rel);
+    return fs.existsSync(abs) ? abs : null;
+  } catch { return null; }
 }
 
+// Prefer the local install; fall back to npx through a shell so a globally
+// installed or auto-fetched tool still works.
+function nodeTool(root, pkgName, args) {
+  const local = localTool(root, pkgName);
+  if (local) return { cmd: process.execPath, args: [local, ...args] };
+  return {
+    cmd: process.platform === 'win32' ? 'npx.cmd' : 'npx',
+    args: ['--no-install', pkgName, ...args],
+    shell: process.platform === 'win32',
+  };
+}
+
+// Strongest evidence first, so `detect` and every default pick agree.
 export function detectRunners(root) {
-  return RUNNERS.filter((r) => {
-    try { return r.detect(root); } catch { return false; }
-  });
+  return RUNNERS
+    .map((r) => {
+      let score = CONFIDENCE.NONE;
+      try { score = r.detect(root) || CONFIDENCE.NONE; } catch { /* unreadable repo */ }
+      return { r, score };
+    })
+    .filter((x) => x.score > CONFIDENCE.NONE)
+    .sort((a, b) => b.score - a.score)
+    .map((x) => Object.assign(Object.create(Object.getPrototypeOf(x.r)), x.r, { confidence: x.score }));
 }
 
 export function getRunner(id) {

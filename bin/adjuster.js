@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import process from 'node:process';
 import { repoRoot } from '../src/git.js';
-import { adjust, snapshot, pickRunner, DENIED, FLAGGED } from '../src/adjust.js';
+import { adjust, snapshot, pickRunner, projectDirFor, DENIED, FLAGGED } from '../src/adjust.js';
 import { renderLedger, renderJson } from '../src/report.js';
 import { runHook } from '../src/hook.js';
 import { installHooks, uninstallHooks } from '../src/install.js';
@@ -59,6 +59,7 @@ try {
 
 function cmdCheck() {
   const result = adjust(root, {
+    cwd: process.cwd(),
     baseRef: flags.base,
     runner: flags.runner,
     timeoutMs: flags.timeout ? flags.timeout * 1000 : undefined,
@@ -78,6 +79,7 @@ function cmdCheck() {
 
 function cmdSnapshot() {
   const res = snapshot(root, {
+    cwd: process.cwd(),
     runner: flags.runner,
     timeoutMs: flags.timeout ? flags.timeout * 1000 : undefined,
   });
@@ -96,12 +98,13 @@ function cmdSnapshot() {
 }
 
 function cmdInit() {
-  const runner = pickRunner(root, flags.runner);
+  const runner = pickRunner(root, flags.runner, process.cwd());
   if (!runner) {
     fatal('no supported test runner detected. Supported: pytest, jest, vitest, go test, node:test, cargo nextest.');
   }
   process.stdout.write(`\n  Detected ${runner.label}. Recording a baseline…\n`);
-  const res = snapshot(root, { runner: flags.runner, timeoutMs: flags.timeout ? flags.timeout * 1000 : undefined });
+  const res = snapshot(root, {
+    cwd: process.cwd(), runner: flags.runner, timeoutMs: flags.timeout ? flags.timeout * 1000 : undefined });
   if (!res.ok) fatal(res.reason);
   const s = res.summary;
   process.stdout.write(`  ${s.total} tests: ${s.passed} passed, ${s.failed} failed, ${s.skipped} skipped\n`);
@@ -116,7 +119,7 @@ function cmdUninstall() {
 }
 
 function cmdDetect() {
-  const found = detectRunners(root);
+  const found = detectRunners(projectDirFor(root, flags.runner, process.cwd()));
   if (!found.length) {
     process.stdout.write('  No supported test runner detected.\n');
     process.exit(1);

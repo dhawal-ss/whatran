@@ -11,13 +11,13 @@ import path from 'node:path';
 export function runSuite(runner, cwd, { timeoutMs = 15 * 60 * 1000, env = {} } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'adjuster-'));
   const outFile = path.join(tmp, 'report' + runner.outExt);
-  const spec = runner.command(outFile);
+  const spec = runner.command(outFile, cwd);
 
   const res = spawnSync(spec.cmd, spec.args, {
     cwd,
     encoding: 'utf8',
     timeout: timeoutMs,
-    shell: false,
+    shell: spec.shell === true,
     maxBuffer: 64 * 1024 * 1024,
     env: childEnv(env, spec.env),
   });
@@ -27,13 +27,16 @@ export function runSuite(runner, cwd, { timeoutMs = 15 * 60 * 1000, env = {} } =
 
   const cleanup = () => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ } };
 
-  if (res.error && res.error.code === 'ENOENT') {
+  if (res.error) {
     cleanup();
-    return fail(`\`${spec.cmd}\` is not on PATH`, res.status);
-  }
-  if (res.error && res.error.code === 'ETIMEDOUT') {
-    cleanup();
-    return fail(`test run exceeded ${Math.round(timeoutMs / 1000)}s`, res.status);
+    if (res.error.code === 'ENOENT') return fail(`\`${spec.cmd}\` is not on PATH`, res.status);
+    if (res.error.code === 'ETIMEDOUT') {
+      return fail(`test run exceeded ${Math.round(timeoutMs / 1000)}s`, res.status);
+    }
+    // Anything else — EINVAL from spawning a .cmd without a shell on Windows,
+    // EACCES, EPERM — used to fall through to the generic "no results" message
+    // with nothing attached, which told the user nothing at all.
+    return fail(`could not start ${runner.label}: ${res.error.code ?? res.error.message}`, res.status);
   }
 
   let outcomes;

@@ -51,7 +51,7 @@ export function clearBaseline(root) {
 // A worktree does not carry untracked files, so node_modules and .venv are
 // absent. Rather than guess, we link the ones we can and let runSuite report
 // an unusable result honestly if that wasn't enough.
-export function captureFromRef(root, ref, runner, { link = true } = {}) {
+export function captureFromRef(root, ref, runner, { link = true, projectDir = root } = {}) {
   if (runner.lang === 'python') {
     const editable = detectEditableInstall(root);
     if (editable) {
@@ -72,7 +72,10 @@ export function captureFromRef(root, ref, runner, { link = true } = {}) {
   }
   try {
     if (link) linkDependencies(root, dir);
-    const res = runSuite(runner, dir);
+    // Mirror the project sub-path inside the worktree.
+    const rel = path.relative(root, projectDir);
+    const runIn = rel && !rel.startsWith('..') ? path.join(dir, rel) : dir;
+    const res = runSuite(runner, runIn);
     if (!res.ok) {
       return {
         ok: false,

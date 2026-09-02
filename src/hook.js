@@ -1,6 +1,7 @@
 import { adjust, snapshot, DENIED } from './adjust.js';
 import { renderAgentFeedback } from './report.js';
 import { loadBaseline } from './baseline.js';
+import { projectDirFor } from './adjust.js';
 import { head as gitHead } from './git.js';
 import { couldAffectTests } from './relevance.js';
 
@@ -30,10 +31,10 @@ export async function runHook(root, flags = {}) {
   // test outcome was touched, running the suite is pure latency — and a tool
   // that adds minutes to a turn that edited only a README gets uninstalled for
   // being slow rather than for being wrong.
-  const recorded = loadBaseline(root);
+  const recorded = loadBaseline(projectDirFor(root, null, process.cwd()));
   if (!couldAffectTests(root, recorded?.ref ?? null)) return 0;
 
-  const result = adjust(root, { timeoutMs: flags.timeout ? flags.timeout * 1000 : undefined });
+  const result = adjust(root, { cwd: process.cwd(), timeoutMs: flags.timeout ? flags.timeout * 1000 : undefined });
 
   // Inconclusive must never block. If we cannot obtain trustworthy evidence,
   // the honest answer is silence, not an accusation.
@@ -49,14 +50,14 @@ export async function runHook(root, flags = {}) {
 }
 
 function handleSessionStart(root) {
-  const existing = loadBaseline(root);
+  const existing = loadBaseline(projectDirFor(root, null, process.cwd()));
   const current = gitHead(root);
   const fresh = existing
     && existing.ref === current
     && Date.now() - Date.parse(existing.createdAt) < STALE_MS;
   if (fresh) return 0;
 
-  const res = snapshot(root);
+  const res = snapshot(root, { cwd: process.cwd() });
   if (!res.ok) {
     if (process.env.ADJUSTER_DEBUG) process.stderr.write(`adjuster: ${res.reason}\n`);
     return 0;
