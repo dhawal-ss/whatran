@@ -128,16 +128,6 @@ actually executed catches those.
 **It is not about catching cheaters.** Deliberate test tampering is rare and getting rarer.
 Coverage disappearing by accident is not rare at all, and nothing else tells you when it happens.
 
-## Development
-
-```bash
-npm test        # 30 unit tests, no dependencies
-```
-
-## Licence
-
-MIT.
-
 ## Speed
 
 The Stop hook runs on every turn, so it refuses to run your suite when nothing
@@ -150,3 +140,13 @@ difference between the tool being invisible and being uninstalled.
 
 Everything unrecognised counts as relevant, so an unfamiliar file type causes a
 check to run rather than to be silently skipped.
+
+## Development
+
+```bash
+npm test        # 61 unit and integration tests, no dependencies
+```
+
+## Licence
+
+MIT.
