@@ -107,7 +107,7 @@ function linkDependencies(root, worktree) {
 // into site-packages pointing at the ORIGINAL checkout. Linking that venv into
 // a worktree means the base run imports HEAD's source instead of the base
 // commit's — base and head come out identical, every transition vanishes, and
-// the tool reports a confident ALLOWED on a change it never actually measured.
+// the tool reports a confident INTACT on a change it never actually measured.
 //
 // A false green is the worst possible failure direction, so this refuses to
 // guess. Detection is a directory scan, not a heuristic about behaviour.

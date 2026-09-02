@@ -35,7 +35,7 @@ describe('stripNonCode', () => {
   });
 });
 
-// These matter because a false DENIED on a test file that merely *mentions*
+// These matter because a false MISSING on a test file that merely *mentions*
 // focus locks would be an embarrassing and trust-destroying bug.
 describe('focus detection via stripNonCode', () => {
   const FOCUS = /^\s*(?:await\s+)?(?:describe|it|test|suite|bench)\s*\.\s*only\s*[.(]/;
