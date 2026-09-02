@@ -1,11 +1,12 @@
 import { detectRunners, getRunner } from './runners.js';
 import { runSuite, summarise } from './run.js';
 import { loadBaseline, captureFromRef, saveBaseline } from './baseline.js';
-import { changedFiles, head as gitHead, mergeBase } from './git.js';
+import { changedFiles, head as gitHead, mergeBase, listFiles, listFilesAtRef, fileAtRef } from './git.js';
 import {
   outcomeTransitions, harnessTampering, focusLocks, suiteShrank, verdict,
-  DENIED, FLAGGED, ALLOWED,
+  collectHarnessState, isHarnessFile, DENIED, FLAGGED, ALLOWED,
 } from './checks.js';
+import { createHash } from 'node:crypto';
 
 export { DENIED, FLAGGED, ALLOWED };
 
@@ -31,11 +32,13 @@ export function adjust(root, opts = {}) {
   // --- obtain the baseline -------------------------------------------------
   let base = null;
   let baseSource = null;
+  let baselineHarness = null;
   if (opts.baseRef) {
     const ref = mergeBase(root, opts.baseRef);
     const cap = captureFromRef(root, ref, runner);
     if (!cap.ok) return inconclusive(cap.reason, { runner: runner.label });
     base = cap.outcomes;
+    baselineHarness = harnessStateAtRef(root, ref);
     baseSource = `${opts.baseRef} (${ref.slice(0, 8)})`;
   } else {
     const saved = loadBaseline(root);
@@ -53,6 +56,7 @@ export function adjust(root, opts = {}) {
       );
     }
     base = saved.outcomes;
+    baselineHarness = saved.harness ?? {};
     baseSource = `snapshot ${saved.createdAt}`;
   }
 
@@ -87,7 +91,7 @@ export function adjust(root, opts = {}) {
   const findings = [
     ...outcomeTransitions(base, now.outcomes),
     ...focusLocks(root, changed),
-    ...harnessTampering(changed),
+    ...harnessTampering(baselineHarness, collectHarnessState(root, () => listFiles(root))),
   ];
   const explained = findings.some((f) =>
     f.code === 'failing-test-removed' || f.code === 'test-vanished' || f.code === 'focus-lock');
@@ -144,6 +148,19 @@ export function snapshot(root, opts = {}) {
     runner: runner.id,
     outcomes: res.outcomes,
     ref: gitHead(root),
+    harness: collectHarnessState(root, () => listFiles(root)),
   });
   return { ok: true, runner: runner.label, summary: saved.summary, path: '.adjuster/baseline.json' };
+}
+
+// Harness file hashes as of a git ref, for CI mode where there is no recorded
+// snapshot to compare against.
+function harnessStateAtRef(root, ref) {
+  const state = {};
+  for (const rel of listFilesAtRef(root, ref)) {
+    if (!isHarnessFile(rel)) continue;
+    const body = fileAtRef(root, ref, rel);
+    state[rel] = createHash('sha1').update(body, 'utf8').digest('hex').slice(0, 16);
+  }
+  return state;
 }

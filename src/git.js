@@ -72,3 +72,14 @@ export function removeWorktree(root, dir) {
   git(root, ['worktree', 'remove', '--force', dir], { tolerant: true });
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
 }
+
+export function listFiles(root) {
+  const tracked = git(root, ['ls-files'], { tolerant: true });
+  const untracked = git(root, ['ls-files', '--others', '--exclude-standard'], { tolerant: true });
+  return [...new Set((tracked + '\n' + untracked).split(/\r?\n/).map((l) => l.trim()).filter(Boolean))];
+}
+
+export function listFilesAtRef(root, ref) {
+  const out = git(root, ['ls-tree', '-r', '--name-only', ref], { tolerant: true });
+  return out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+}

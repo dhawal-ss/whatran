@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
+import { stripNonCode } from './strip.js';
 
 // Severity vocabulary, borrowed from the job the tool is named after.
 // DENIED  — the evidence contradicts the change. Deterministic; no judgement.
@@ -105,12 +107,27 @@ const HARNESS_FILES = [
 ];
 const HARNESS_DIRS = ['.github/workflows/', '.gitlab-ci', '.circleci/', '.adjuster/'];
 
-export function harnessTampering(changed) {
-  const hits = changed.filter((f) => {
-    const base = f.split('/').pop() ?? '';
-    if (HARNESS_FILES.some((h) => base === h || base.startsWith(h + '.') || base === h + '.js' || base === h + '.ts')) return true;
-    return HARNESS_DIRS.some((d) => f.startsWith(d) || f.includes('/' + d));
-  });
+export function isHarnessFile(f) {
+  const base = f.split('/').pop() ?? '';
+  if (HARNESS_FILES.some((h) => base === h || base.startsWith(h + '.'))) return true;
+  return HARNESS_DIRS.some((d) => f.startsWith(d) || f.includes('/' + d));
+}
+
+// Compares content hashes recorded with the baseline against the tree as it is
+// now. Using "anything uncommitted" instead would flag a config the developer
+// edited last week on every single run, and noise like that is how a tool
+// teaches people to ignore it.
+export function harnessTampering(baselineHashes, currentHashes) {
+  if (!baselineHashes) return [];
+  const hits = [];
+  for (const [file, hash] of currentHashes) {
+    const was = baselineHashes[file];
+    if (was === undefined) hits.push(`${file} (added)`);
+    else if (was !== hash) hits.push(`${file} (modified)`);
+  }
+  for (const file of Object.keys(baselineHashes)) {
+    if (!currentHashes.has(file)) hits.push(`${file} (removed)`);
+  }
   if (!hits.length) return [];
   return [{
     level: FLAGGED,
@@ -129,9 +146,12 @@ export function harnessTampering(changed) {
 // the suite still reports green and exits 0. Vitest errors on this in CI;
 // Jest and node:test do not.
 // ---------------------------------------------------------------------------
+// Anchored to statement position. A bare \b match would fire on a test whose
+// own name mentions `test.only`, which is exactly the kind of false denial that
+// gets a tool switched off.
 const FOCUS_PATTERNS = [
-  { re: /\b(?:describe|it|test|suite|bench)\s*\.\s*only\s*\(/, label: '.only' },
-  { re: /(?:^|[^\w.])(?:fdescribe|fit)\s*\(/, label: 'fdescribe/fit' },
+  { re: /^\s*(?:await\s+)?(?:describe|it|test|suite|bench)\s*\.\s*only\s*[.(]/, label: '.only' },
+  { re: /^\s*(?:await\s+)?(?:fdescribe|fit)\s*\(/, label: 'fdescribe/fit' },
 ];
 
 export function focusLocks(root, changed) {
@@ -141,7 +161,7 @@ export function focusLocks(root, changed) {
     if (!/\.[cm]?[jt]sx?$/.test(rel)) continue;
     let src;
     try { src = fs.readFileSync(path.join(root, rel), 'utf8'); } catch { continue; }
-    for (const line of stripComments(src).split(/\r?\n/)) {
+    for (const line of stripNonCode(src).split(/\r?\n/)) {
       const found = FOCUS_PATTERNS.find((p) => p.re.test(line));
       if (found) { hits.push(`${rel} — ${found.label}`); break; }
     }
@@ -157,11 +177,9 @@ export function focusLocks(root, changed) {
   }];
 }
 
-function stripComments(src) {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/.*$/gm, '$1');
-}
+// Comments and string literals are blanked (not deleted) so line numbers and
+// statement positions survive. Without this, a test whose *name* mentions
+// `test.only` would be reported as a focus lock.
 
 // ---------------------------------------------------------------------------
 // Check 4 — the suite got smaller.
@@ -191,4 +209,20 @@ export function verdict(findings) {
 
 function plural(n, one, many) {
   return `${n} ${n === 1 ? one : many}`;
+}
+
+// ---------------------------------------------------------------------------
+// Harness state capture. Hashes every harness-shaped file in the repo so a
+// later run can tell what actually changed since the baseline.
+// ---------------------------------------------------------------------------
+export function collectHarnessState(root, listFiles) {
+  const state = new Map();
+  for (const rel of listFiles()) {
+    if (!isHarnessFile(rel)) continue;
+    try {
+      const buf = fs.readFileSync(path.join(root, rel));
+      state.set(rel, crypto.createHash('sha1').update(buf).digest('hex').slice(0, 16));
+    } catch { /* unreadable or deleted between listing and reading */ }
+  }
+  return state;
 }

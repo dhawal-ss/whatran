@@ -2,6 +2,7 @@ import { adjust, snapshot, DENIED } from './adjust.js';
 import { renderAgentFeedback } from './report.js';
 import { loadBaseline } from './baseline.js';
 import { head as gitHead } from './git.js';
+import { couldAffectTests } from './relevance.js';
 
 const STALE_MS = 8 * 60 * 60 * 1000;
 
@@ -23,6 +24,13 @@ export async function runHook(root, flags = {}) {
   // Claude Code sets this when the current stop was itself triggered by a hook.
   // Without this guard a failing check would fight the agent in a loop.
   if (input.stop_hook_active === true || input.stopHookActive === true) return 0;
+
+  // This runs on every single turn, and a real suite takes minutes rather than
+  // the milliseconds a fixture does. If nothing that could possibly change a
+  // test outcome was touched, running the suite is pure latency — and a tool
+  // that adds minutes to a turn that edited only a README gets uninstalled for
+  // being slow rather than for being wrong.
+  if (!couldAffectTests(root)) return 0;
 
   const result = adjust(root, { timeoutMs: flags.timeout ? flags.timeout * 1000 : undefined });
 

@@ -1,7 +1,26 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const MARKER = 'adjuster hook';
+
+// The hook config has to name a command that will actually resolve months from
+// now, on a machine that may never have installed anything. Writing
+// `npx adjuster` when the package is not published — or is only checked out
+// locally — produces a config that silently does nothing, which is worse than
+// one that fails loudly.
+export function hookCommand() {
+  const binPath = fileURLToPath(new URL('../bin/adjuster.js', import.meta.url));
+  const installed = binPath.split(path.sep).includes('node_modules');
+  if (installed) return 'npx --no-install adjuster-cli hook';
+  // Running from a clone: point straight at this checkout with the interpreter
+  // that is running right now. Absolute, dependency-free, always resolves.
+  return `${quote(process.execPath)} ${quote(binPath)} hook`;
+}
+
+function quote(p) {
+  return /[\s"]/.test(p) ? `"${p.replace(/"/g, '\\"')}"` : p;
+}
 
 // Hook wiring for each harness that supports blocking a turn. Claude Code,
 // Codex and Copilot all cloned the same stdin-JSON / exit-2 mechanism, so the
@@ -15,7 +34,7 @@ const TARGETS = [
     build: (existing) => {
       const doc = existing ?? {};
       doc.hooks ??= {};
-      const cmd = 'npx --no-install adjuster hook';
+      const cmd = hookCommand();
       addHook(doc.hooks, 'SessionStart', {
         hooks: [{ type: 'command', command: cmd + ' --event SessionStart', timeout: 900 }],
       });
@@ -34,7 +53,7 @@ const TARGETS = [
       const doc = existing ?? {};
       doc.hooks ??= {};
       addHook(doc.hooks, 'Stop', {
-        hooks: [{ type: 'command', command: 'npx --no-install adjuster hook', timeout: 900 }],
+        hooks: [{ type: 'command', command: hookCommand(), timeout: 900 }],
       });
       return doc;
     },
@@ -50,7 +69,7 @@ const TARGETS = [
       // Cursor's stop hook cannot block; it re-prompts instead.
       doc.hooks.stop ??= [];
       if (!JSON.stringify(doc.hooks.stop).includes('adjuster')) {
-        doc.hooks.stop.push({ command: 'npx --no-install adjuster hook' });
+        doc.hooks.stop.push({ command: hookCommand() });
       }
       return doc;
     },

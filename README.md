@@ -1,5 +1,7 @@
 # adjuster
 
+<sub>npm: <code>adjuster-cli</code> · command: <code>adjuster</code></sub>
+
 **Catches the test that stopped running.**
 
 Your agent says the tests pass. They do — the ones that are left.
@@ -26,7 +28,7 @@ $ pytest -q
 ## Install
 
 ```bash
-npx adjuster init
+npx adjuster-cli init
 ```
 
 That's it. It detects your test runner, records a baseline, and installs a hook so your coding
@@ -76,11 +78,11 @@ Force one with `--runner <id>` if detection guesses wrong.
 ## Usage
 
 ```bash
-npx adjuster                 # check the working tree against the baseline
-npx adjuster snapshot        # record the current suite as the baseline
-npx adjuster check --base main   # CI mode: compare against a git ref instead
-npx adjuster detect          # show which runner would be used
-npx adjuster uninstall       # remove the hooks
+npx adjuster-cli                 # check the working tree against the baseline
+npx adjuster-cli snapshot        # record the current suite as the baseline
+npx adjuster-cli check --base main   # CI mode: compare against a git ref instead
+npx adjuster-cli detect          # show which runner would be used
+npx adjuster-cli uninstall       # remove the hooks
 ```
 
 Exit codes: `0` allowed or inconclusive, `1` denied, `2` flagged (with `--strict`).
@@ -88,14 +90,14 @@ Exit codes: `0` allowed or inconclusive, `1` denied, `2` flagged (with `--strict
 ### In CI
 
 ```yaml
-- run: npx adjuster check --base ${{ github.event.pull_request.base.sha }}
+- run: npx adjuster-cli check --base ${{ github.event.pull_request.base.sha }}
 ```
 
 No baseline needed — it builds one from the ref in a detached worktree.
 
 ### With your agent
 
-`npx adjuster init` wires up whichever of these it finds:
+`npx adjuster-cli init` wires up whichever of these it finds:
 
 - **Claude Code** — `SessionStart` records the baseline, `Stop` blocks the turn and hands the
   agent an instruction to restore the tests.
@@ -135,3 +137,16 @@ npm test        # 30 unit tests, no dependencies
 ## Licence
 
 MIT.
+
+## Speed
+
+The Stop hook runs on every turn, so it refuses to run your suite when nothing
+could possibly have changed a test outcome — documentation, images, build
+artefacts, agent config, or no edits at all.
+
+On a repo whose suite takes 3.5s, that is the difference between **255ms** and
+**3540ms** per turn. On a repo whose suite takes four minutes, it is the
+difference between the tool being invisible and being uninstalled.
+
+Everything unrecognised counts as relevant, so an unfamiliar file type causes a
+check to run rather than to be silently skipped.

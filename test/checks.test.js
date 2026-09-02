@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import {
-  outcomeTransitions, harnessTampering, suiteShrank, verdict,
+  outcomeTransitions, harnessTampering, suiteShrank, verdict, isHarnessFile,
   DENIED, FLAGGED, ALLOWED,
 } from '../src/checks.js';
 
@@ -65,22 +65,48 @@ describe('outcome transitions', () => {
 });
 
 describe('harness tampering', () => {
+  const state = (obj) => new Map(Object.entries(obj));
+
+  test('flags a harness file that changed since the baseline', () => {
+    const f = harnessTampering({ 'conftest.py': 'aaa' }, state({ 'conftest.py': 'bbb' }));
+    assert.strictEqual(f.length, 1);
+    assert.match(f[0].evidence[0], /conftest\.py \(modified\)/);
+  });
+
+  test('flags a harness file that appeared since the baseline', () => {
+    const f = harnessTampering({}, state({ 'conftest.py': 'aaa' }));
+    assert.match(f[0].evidence[0], /conftest\.py \(added\)/);
+  });
+
+  test('flags a harness file that was removed', () => {
+    const f = harnessTampering({ 'pytest.ini': 'aaa' }, state({}));
+    assert.match(f[0].evidence[0], /pytest\.ini \(removed\)/);
+  });
+
+  // The noise regression: a config the developer edited last week is identical
+  // at baseline time and now, so it must stay silent on every subsequent run.
+  test('stays silent when harness files are unchanged since the baseline', () => {
+    assert.deepStrictEqual(harnessTampering({ 'conftest.py': 'aaa' }, state({ 'conftest.py': 'aaa' })), []);
+  });
+
+  test('never denies on its own - editing config is often the point', () => {
+    assert.strictEqual(harnessTampering({}, state({ 'conftest.py': 'x' }))[0].level, FLAGGED);
+  });
+
   for (const file of [
     'conftest.py', 'pytest.ini', 'tox.ini', 'jest.config.js', 'vitest.config.ts',
     '.github/workflows/ci.yml', 'pkg/conftest.py', 'Makefile',
   ]) {
-    test(`flags ${file}`, () => {
-      assert.strictEqual(harnessTampering([file]).length, 1, file);
+    test(`recognises ${file} as a harness file`, () => {
+      assert.strictEqual(isHarnessFile(file), true, file);
     });
   }
 
-  test('ignores ordinary source and test files', () => {
-    assert.deepStrictEqual(harnessTampering(['src/auth.py', 'test/sum.test.js', 'README.md']), []);
-  });
-
-  test('never denies on its own — modifying config is often legitimate', () => {
-    assert.strictEqual(harnessTampering(['conftest.py'])[0].level, FLAGGED);
-  });
+  for (const file of ['src/auth.py', 'test/sum.test.js', 'README.md']) {
+    test(`does not treat ${file} as a harness file`, () => {
+      assert.strictEqual(isHarnessFile(file), false, file);
+    });
+  }
 });
 
 describe('suite shrinkage', () => {

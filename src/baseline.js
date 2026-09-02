@@ -5,13 +5,13 @@ import { addWorktree, removeWorktree, head as gitHead } from './git.js';
 
 export const DIR = '.adjuster';
 export const FILE = 'baseline.json';
-const VERSION = 1;
+const VERSION = 2; // 2 adds recorded harness-file hashes
 
 export function baselinePath(root) {
   return path.join(root, DIR, FILE);
 }
 
-export function saveBaseline(root, { runner, outcomes, ref }) {
+export function saveBaseline(root, { runner, outcomes, ref, harness }) {
   const dir = path.join(root, DIR);
   fs.mkdirSync(dir, { recursive: true });
   // The baseline is a machine artefact tied to one checkout. Committing it
@@ -25,6 +25,7 @@ export function saveBaseline(root, { runner, outcomes, ref }) {
     ref: ref ?? gitHead(root),
     runner,
     summary: summarise(outcomes),
+    harness: harness ? Object.fromEntries(harness) : {},
     outcomes: Object.fromEntries(outcomes),
   };
   fs.writeFileSync(baselinePath(root), JSON.stringify(payload, null, 2) + '\n');
