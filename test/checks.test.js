@@ -2,6 +2,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import {
   outcomeTransitions, harnessTampering, suiteShrank, verdict, isHarnessFile,
+  isFailing, isBlocking, BROKE,
   MISSING, NOTICE, INTACT,
 } from '../src/checks.js';
 
@@ -122,5 +123,44 @@ describe('suite shrinkage', () => {
 
   test('stays quiet when the suite grew', () => {
     assert.deepStrictEqual(suiteShrank(m({ a: 'passed' }), m({ a: 'passed', b: 'passed' }), false), []);
+  });
+});
+
+describe('regressions', () => {
+  test('a passing test that now fails is reported', () => {
+    const f = outcomeTransitions(m({ a: 'passed' }), m({ a: 'failed' }));
+    assert.strictEqual(f.length, 1);
+    assert.strictEqual(f[0].code, 'test-regressed');
+    assert.strictEqual(f[0].level, BROKE);
+  });
+
+  // A red test is already visible to everyone; a silenced one is not. Only the
+  // invisible kind justifies interrupting the agent mid-conversation.
+  test('a regression fails `check` but does not interrupt the agent', () => {
+    const f = outcomeTransitions(m({ a: 'passed' }), m({ a: 'failed' }));
+    assert.strictEqual(isFailing(f), true, 'check and CI must fail');
+    assert.strictEqual(isBlocking(f), false, 'the agent turn must not be blocked');
+  });
+
+  test('a silenced test does both', () => {
+    const f = outcomeTransitions(m({ a: 'failed' }), m({ a: 'skipped' }));
+    assert.strictEqual(isFailing(f), true);
+    assert.strictEqual(isBlocking(f), true);
+  });
+
+  test('a test that was already failing and still fails is not a regression', () => {
+    assert.deepStrictEqual(outcomeTransitions(m({ a: 'failed' }), m({ a: 'failed' })), []);
+  });
+
+  test('missing outranks broke in the overall verdict', () => {
+    const f = outcomeTransitions(m({ a: 'failed', b: 'passed' }), m({ a: 'skipped', b: 'failed' }));
+    assert.strictEqual(verdict(f), MISSING);
+    assert.ok(f.some((x) => x.code === 'test-regressed'), 'the regression is still reported');
+  });
+
+  test('notices alone neither fail nor block', () => {
+    const f = outcomeTransitions(m({ a: 'passed' }), m({ a: 'skipped' }));
+    assert.strictEqual(isFailing(f), false);
+    assert.strictEqual(isBlocking(f), false);
   });
 });

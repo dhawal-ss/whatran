@@ -1,4 +1,5 @@
-import { whatran, snapshot, MISSING } from './whatran.js';
+import { whatran, snapshot } from './whatran.js';
+import { isBlocking, FAILING_LEVELS } from './checks.js';
 import { renderAgentFeedback } from './report.js';
 import { loadBaseline } from './baseline.js';
 import { projectDirFor } from './whatran.js';
@@ -43,9 +44,13 @@ export async function runHook(root, flags = {}) {
     return 0;
   }
 
-  if (result.verdict !== MISSING) return 0;
+  // Only interrupt for things that would otherwise go unnoticed. A test that
+  // now fails is already red in the output; a test that stopped running is not.
+  if (!isBlocking(result.findings)) return 0;
 
-  process.stderr.write(renderAgentFeedback(result.findings) + '\n');
+  // Deciding to interrupt is narrow, but once we are interrupting, report
+  // everything that is wrong — the agent is listening and it costs nothing.
+  process.stderr.write(renderAgentFeedback(result.findings, FAILING_LEVELS) + '\n');
   return 2;
 }
 

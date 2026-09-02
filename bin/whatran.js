@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import process from 'node:process';
 import { repoRoot } from '../src/git.js';
-import { whatran, snapshot, pickRunner, projectDirFor, MISSING, NOTICE } from '../src/whatran.js';
+import { whatran, snapshot, pickRunner, projectDirFor, NOTICE } from '../src/whatran.js';
+import { isFailing } from '../src/checks.js';
 import { renderLedger, renderJson } from '../src/report.js';
 import { runHook } from '../src/hook.js';
 import { installHooks, uninstallHooks } from '../src/install.js';
@@ -67,12 +68,12 @@ function cmdCheck() {
 
   if (flags.json) {
     process.stdout.write(renderJson(serialise(result)) + '\n');
-  } else if (!flags.quiet || result.verdict === MISSING) {
+  } else if (!flags.quiet || isFailing(result.findings)) {
     process.stdout.write(renderLedger(result));
   }
 
   if (flags.noFail) process.exit(0);
-  if (result.verdict === MISSING) process.exit(1);
+  if (isFailing(result.findings)) process.exit(1);
   if (flags.strict && result.verdict === NOTICE) process.exit(2);
   process.exit(0);
 }

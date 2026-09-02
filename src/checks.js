@@ -3,13 +3,28 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { stripNonCode } from './strip.js';
 
-// What the tool is willing to say, in the order it will say it.
-// MISSING — something that used to run does not run any more. Deterministic.
+// What the tool is willing to say, worst first.
+//
+// MISSING — something that used to run does not run any more.
+// BROKE   — something that used to pass now fails.
 // NOTICE  — worth a glance, but legitimate explanations are common.
-// INTACT  — nothing stopped running. Shown so the tool is not purely negative.
+// INTACT  — nothing stopped running.
+//
+// MISSING and BROKE are treated differently on purpose. A broken test SHOUTS:
+// it is red in the output, the agent sees it, CI sees it, nobody can miss it.
+// A silenced test HIDES: the suite goes green and the only trace is a line in
+// a diff. whatran exists for the second kind, so it blocks the agent's turn on
+// MISSING alone. BROKE still fails `check` and CI, but blocking every turn
+// where a test happens to be red would make the tool unusable mid-refactor.
 export const MISSING = 'missing';
+export const BROKE = 'broke';
 export const NOTICE = 'notice';
 export const INTACT = 'intact';
+
+// Levels that mean "this run is not acceptable" for `check` and CI.
+export const FAILING_LEVELS = new Set([MISSING, BROKE]);
+// Levels that justify interrupting the agent mid-conversation.
+export const BLOCKING_LEVELS = new Set([MISSING]);
 
 // ---------------------------------------------------------------------------
 // Check 1 — outcome transitions.
@@ -28,6 +43,8 @@ export function outcomeTransitions(base, head) {
   const newlySkipped = [];
   const vanished = [];
 
+  const regressed = [];
+
   for (const [id, was] of base) {
     const now = head.get(id);
     if (now === undefined) {
@@ -38,6 +55,8 @@ export function outcomeTransitions(base, head) {
       fixed.push(id);
     } else if (was === 'passed' && now === 'skipped') {
       newlySkipped.push(id);
+    } else if (was === 'passed' && now === 'failed') {
+      regressed.push(id);
     }
   }
 
@@ -59,6 +78,15 @@ export function outcomeTransitions(base, head) {
       detail: 'These tests were failing before the change and are no longer collected — '
         + 'deleted, renamed, or excluded by config.',
       evidence: removed,
+    });
+  }
+  if (regressed.length) {
+    findings.push({
+      level: BROKE,
+      code: 'test-regressed',
+      title: plural(regressed.length, 'test that passed now fails', 'tests that passed now fail'),
+      detail: 'These were green before the change and are red now.',
+      evidence: regressed,
     });
   }
   if (vanished.length) {
@@ -202,9 +230,21 @@ export function suiteShrank(base, head, alreadyExplained) {
 }
 
 export function verdict(findings) {
-  if (findings.some((f) => f.level === MISSING)) return MISSING;
-  if (findings.some((f) => f.level === NOTICE)) return NOTICE;
+  for (const level of [MISSING, BROKE, NOTICE]) {
+    if (findings.some((f) => f.level === level)) return level;
+  }
   return INTACT;
+}
+
+// Should `check` / CI treat this run as a failure?
+export function isFailing(findings) {
+  return findings.some((f) => FAILING_LEVELS.has(f.level));
+}
+
+// Should the agent's turn be interrupted? Deliberately narrower — see the
+// note on the level constants above.
+export function isBlocking(findings) {
+  return findings.some((f) => BLOCKING_LEVELS.has(f.level));
 }
 
 function plural(n, one, many) {
