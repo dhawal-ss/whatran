@@ -1,0 +1,33 @@
+{
+  "name": "adjuster",
+  "version": "0.1.0",
+  "description": "Catches the test that stopped running. A cross-language test-outcome regression gate for AI coding agents — works with Claude Code, Codex, Cursor, and CI.",
+  "keywords": [
+    "ai-agents",
+    "claude-code",
+    "codex",
+    "cursor",
+    "testing",
+    "pytest",
+    "jest",
+    "vitest",
+    "ci",
+    "verification"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "adjuster": "./bin/adjuster.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test"
+  }
+}
