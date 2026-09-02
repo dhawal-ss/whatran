@@ -27,6 +27,15 @@ $ pytest -q
 
 ## Install
 
+> **Not published to npm yet.** Until it is, clone and run it directly:
+>
+> ```bash
+> git clone <this-repo> && node adjuster/bin/adjuster.js init
+> ```
+> `init` writes an absolute path into the hook config, so it keeps working from a clone.
+
+Once published:
+
 ```bash
 npx adjuster-cli init
 ```

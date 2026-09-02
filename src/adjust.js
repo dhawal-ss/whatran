@@ -33,12 +33,14 @@ export function adjust(root, opts = {}) {
   let base = null;
   let baseSource = null;
   let baselineHarness = null;
+  let sinceRef = null;
   if (opts.baseRef) {
     const ref = mergeBase(root, opts.baseRef);
     const cap = captureFromRef(root, ref, runner);
     if (!cap.ok) return inconclusive(cap.reason, { runner: runner.label });
     base = cap.outcomes;
     baselineHarness = harnessStateAtRef(root, ref);
+    sinceRef = ref;
     baseSource = `${opts.baseRef} (${ref.slice(0, 8)})`;
   } else {
     const saved = loadBaseline(root);
@@ -57,6 +59,9 @@ export function adjust(root, opts = {}) {
     }
     base = saved.outcomes;
     baselineHarness = saved.harness ?? {};
+    // Work the agent committed since the snapshot must be visible to the
+    // file-based checks, not just what is still sitting in the working tree.
+    sinceRef = saved.ref ?? null;
     baseSource = `snapshot ${saved.createdAt}`;
   }
 
@@ -87,7 +92,8 @@ export function adjust(root, opts = {}) {
   }
 
   // --- checks --------------------------------------------------------------
-  const changed = changedFiles(root, opts.sinceRef ?? null);
+  // Includes work the agent committed, not just what is still in the tree.
+  const changed = changedFiles(root, opts.sinceRef ?? sinceRef);
   const findings = [
     ...outcomeTransitions(base, now.outcomes),
     ...focusLocks(root, changed),

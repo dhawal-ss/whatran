@@ -50,14 +50,17 @@ export function isRelevantFile(f) {
   return !INERT.has(ext) && !ARTEFACT_EXTS.has(ext);
 }
 
-export function relevantChanges(root) {
+// `sinceRef` must be the commit the baseline was recorded at. Without it this
+// only sees uncommitted work, and an agent that commits its changes — which
+// they routinely do — would sail past the gate with nothing to report.
+export function relevantChanges(root, sinceRef = null) {
   let changed;
-  try { changed = changedFiles(root, null); } catch { return null; }
+  try { changed = changedFiles(root, sinceRef); } catch { return null; }
   return changed.filter(isRelevantFile);
 }
 
-export function couldAffectTests(root) {
-  const relevant = relevantChanges(root);
+export function couldAffectTests(root, sinceRef = null) {
+  const relevant = relevantChanges(root, sinceRef);
   // A git failure returns null: assume relevance rather than skip silently.
   if (relevant === null) return true;
   // An empty list is the other common case — the agent answered a question

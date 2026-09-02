@@ -30,7 +30,8 @@ export async function runHook(root, flags = {}) {
   // test outcome was touched, running the suite is pure latency — and a tool
   // that adds minutes to a turn that edited only a README gets uninstalled for
   // being slow rather than for being wrong.
-  if (!couldAffectTests(root)) return 0;
+  const recorded = loadBaseline(root);
+  if (!couldAffectTests(root, recorded?.ref ?? null)) return 0;
 
   const result = adjust(root, { timeoutMs: flags.timeout ? flags.timeout * 1000 : undefined });
 

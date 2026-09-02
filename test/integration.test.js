@@ -136,3 +136,45 @@ describe('integration', () => {
     assert.notStrictEqual(r.verdict, DENIED);
   });
 });
+
+// The blind spot that mattered most: agents routinely commit their work, and
+// the relevance gate only looked at the working tree. A committed cheat left
+// nothing uncommitted, so the hook skipped verification entirely.
+describe('committed work', () => {
+  const commit = (msg) => {
+    execFileSync('git', ['add', '-A'], { cwd: repo, stdio: 'ignore' });
+    execFileSync('git', ['commit', '-qm', msg], { cwd: repo, stdio: 'ignore' });
+  };
+  const rollback = () => execFileSync('git', ['reset', '-q', '--hard', 'HEAD~1'], { cwd: repo, stdio: 'ignore' });
+
+  test('a committed skip of a failing test is still denied', () => {
+    reset();
+    write('test/sum.test.js', TESTS.replace("test('product multiplies'", "test.skip('product multiplies'"));
+    commit('agent commits the cheat');
+    try {
+      const r = adjust(repo, { runner: 'node-test' });
+      assert.strictEqual(r.verdict, DENIED, JSON.stringify(r.findings, null, 2));
+    } finally { rollback(); }
+  });
+
+  test('a committed focus lock is still denied', () => {
+    reset();
+    write('test/sum.test.js', TESTS.replace("test('sum adds'", "test.only('sum adds'"));
+    commit('agent commits a .only');
+    try {
+      const r = adjust(repo, { runner: 'node-test' });
+      assert.ok(r.findings.some((f) => f.code === 'focus-lock'),
+        'focus lock must be found in committed files: ' + JSON.stringify(r.findings));
+    } finally { rollback(); }
+  });
+
+  test('a committed honest fix stays quiet', () => {
+    reset();
+    write('sum.js', SOURCE.replace('product(a, b) { return a + b; }', 'product(a, b) { return a * b; }'));
+    commit('agent commits an honest fix');
+    try {
+      const r = adjust(repo, { runner: 'node-test' });
+      assert.notStrictEqual(r.verdict, DENIED);
+    } finally { rollback(); }
+  });
+});
