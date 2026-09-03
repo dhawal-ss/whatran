@@ -4,7 +4,7 @@ import { loadBaseline, captureFromRef, saveBaseline, recordUnstable } from './ba
 import { changedFiles, head as gitHead, mergeBase, listFiles, listFilesAtRef, fileAtRef } from './git.js';
 import {
   outcomeTransitions, harnessTampering, focusLocks, suiteShrank, verdict,
-  collectHarnessState, isHarnessFile, assertionFreeTests,
+  collectHarnessState, isHarnessFile, assertionFreeTests, unverifiableIds, identityChanged,
   MISSING, BROKE, NOTICE, INTACT, FAILING_LEVELS,
 } from './checks.js';
 import { newTestsWithoutAssertions } from './oracle.js';
@@ -110,8 +110,14 @@ export function whatran(root, opts = {}) {
   // Includes work the agent committed, not just what is still in the tree.
   const changed = changedFiles(root, opts.sinceRef ?? sinceRef);
 
-  // Tests already known to be unstable are excluded before anything is claimed.
-  let outcomeFindings = dropKnownUnstable(outcomeTransitions(base, now.outcomes), knownUnstable);
+  // A parametrised family that changed size renumbers its own cases, so the
+  // same id no longer names the same input. Exclude those before anything is
+  // claimed about them — including the "honest transition", which is how this
+  // produced a silent clean bill on a failure that had merely moved.
+  const identity = unverifiableIds(base, now.outcomes);
+  const excluded = [...knownUnstable, ...identity.ids];
+
+  let outcomeFindings = dropKnownUnstable(outcomeTransitions(base, now.outcomes), excluded);
 
   // If nothing that could affect a test outcome changed, then a "regression"
   // is impossible by construction: whatever moved, this change did not move it.
@@ -161,6 +167,7 @@ export function whatran(root, opts = {}) {
 
   const findings = [
     ...outcomeFindings,
+    ...identityChanged(identity.families),
     ...focusLocks(root, changed),
     ...harnessTampering(baselineHarness, collectHarnessState(root, () => listFiles(root))),
     // Needs a ref to diff against — without one, every test looks new.

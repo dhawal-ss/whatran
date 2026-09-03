@@ -50,7 +50,18 @@ export async function runHook(root, flags = {}) {
 
   // Deciding to interrupt is narrow, but once we are interrupting, report
   // everything that is wrong — the agent is listening and it costs nothing.
-  process.stderr.write(renderAgentFeedback(result.findings, FAILING_LEVELS) + '\n');
+  const message = renderAgentFeedback(result.findings, FAILING_LEVELS);
+
+  // Cursor cannot be blocked and never reads stderr: its only documented
+  // channel is a followup_message on stdout, which it submits as the next
+  // turn. Writing to stderr and exiting 2 there — as this did — was a silent
+  // no-op, so the Cursor integration did nothing at all.
+  if (flags.harness === 'cursor') {
+    process.stdout.write(JSON.stringify({ followup_message: message }) + '\n');
+    return 0;
+  }
+
+  process.stderr.write(message + '\n');
   return 2;
 }
 

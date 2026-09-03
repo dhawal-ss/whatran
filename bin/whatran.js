@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import process from 'node:process';
+import { readFileSync } from 'node:fs';
 import { repoRoot } from '../src/git.js';
 import { whatran, snapshot, accept, pickRunner, projectDirFor, NOTICE } from '../src/whatran.js';
 import { isFailing } from '../src/checks.js';
@@ -27,12 +28,14 @@ const HELP = `
     --json           machine-readable output
     --quiet          print nothing unless something is denied
     --timeout <sec>  cap the test run (default 900)
-    --no-fail        always exit 0, even when denied
+    --no-fail        never exit non-zero for findings (tool errors still exit 2)
+    --harness <id>   tell the hook which agent invoked it (cursor)
+    --version        print the version
 
   Exit codes
-    0  allowed, or inconclusive
-    1  denied — coverage that existed before is gone
-    2  flagged only (with --strict)
+    0  nothing to report, or inconclusive
+    1  something is missing or broke (also notices, with --strict)
+    2  whatran itself could not run
 `;
 
 const argv = process.argv.slice(2);
@@ -40,6 +43,11 @@ const flags = parseFlags(argv);
 const cmd = argv.find((a) => !a.startsWith('-')) ?? 'check';
 
 if (flags.help) { process.stdout.write(HELP); process.exit(0); }
+if (flags.version) {
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  process.stdout.write(pkg.version + '\n');
+  process.exit(0);
+}
 
 const root = repoRoot();
 if (!root && cmd !== 'help') {
@@ -76,7 +84,7 @@ function cmdCheck() {
 
   if (flags.noFail) process.exit(0);
   if (isFailing(result.findings)) process.exit(1);
-  if (flags.strict && result.verdict === NOTICE) process.exit(2);
+  if (flags.strict && result.verdict === NOTICE) process.exit(1);
   process.exit(0);
 }
 
@@ -166,6 +174,9 @@ function parseFlags(args) {
     else if (a === '--help' || a === '-h') f.help = true;
     else if (a === '--base') f.base = args[++i];
     else if (a.startsWith('--base=')) f.base = a.slice(7);
+    else if (a === '--harness') f.harness = args[++i];
+    else if (a.startsWith('--harness=')) f.harness = a.slice(10);
+    else if (a === '--version' || a === '-v') f.version = true;
     else if (a === '--event') f.event = args[++i];
     else if (a.startsWith('--event=')) f.event = a.slice(8);
     else if (a === '--runner') f.runner = args[++i];
@@ -176,9 +187,12 @@ function parseFlags(args) {
   return f;
 }
 
+// 0 clean · 1 findings · 2 whatran itself could not run.
+// A typo in --runner exiting 1 was indistinguishable from removed coverage,
+// which no CI pipeline can work around.
 function fatal(msg) {
   process.stderr.write(`\n  whatran: ${msg}\n\n`);
-  process.exit(1);
+  process.exit(2);
 }
 
 function cmdAccept() {

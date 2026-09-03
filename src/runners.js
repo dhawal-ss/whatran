@@ -33,9 +33,22 @@ export const RUNNERS = [
       return hasTestFiles(root, /^test_.*\.py$|.*_test\.py$/) ? CONFIDENCE.GUESSED : CONFIDENCE.NONE;
     },
     command(outFile) {
-      return { cmd: pythonBin(), args: ['-m', 'pytest', '-q', '--junitxml=' + outFile] };
+      return {
+        cmd: pythonBin(),
+        args: [
+          '-m', 'pytest', '-q', '--junitxml=' + outFile,
+          // A repo with `addopts = -x` truncates the report at the first
+          // failure and still exits 1, so every later test looks deleted.
+          // Same argparse dest, last one wins, and 0 is falsy so nothing stops.
+          '--maxfail=0',
+          // pytest-randomly reorders every run; a baseline taken at one seed
+          // and a check at another can flip an order-dependent test and read
+          // as a regression. Harmless when the plugin is absent.
+          '-p', 'no:randomly',
+        ],
+      };
     },
-    parse: (outFile) => parseJUnitXml(read(outFile)),
+    parse: (outFile, _stdout, ctx) => parseJUnitXml(read(outFile), ctx),
     outExt: '.xml',
     // pytest: 0 ok, 1 tests failed, 2 interrupted, 3 internal, 4 usage, 5 nothing collected.
     // Anything above 1 means the suite did not run properly, which is not the same
@@ -56,7 +69,7 @@ export const RUNNERS = [
     command(outFile, root) {
       return nodeTool(root, 'vitest', ['run', '--reporter=json', '--outputFile=' + outFile]);
     },
-    parse: (outFile) => parseJestJson(read(outFile)),
+    parse: (outFile, _stdout, ctx) => parseJestJson(read(outFile), ctx),
     outExt: '.json',
     testGlobs: [/\.(test|spec)\.[jt]sx?$/, /(^|\/)__tests__\//],
   },
@@ -72,9 +85,12 @@ export const RUNNERS = [
         ? CONFIDENCE.CONFIGURED : CONFIDENCE.NONE;
     },
     command(outFile, root) {
-      return nodeTool(root, 'jest', ['--ci', '--json', '--outputFile=' + outFile]);
+      // `bail` in a config file makes jest exit before it writes the report at
+      // all — no file, no stdout, exit 1, indistinguishable from a plain test
+      // failure. `--bail=0` overrides it.
+      return nodeTool(root, 'jest', ['--ci', '--bail=0', '--json', '--outputFile=' + outFile]);
     },
-    parse: (outFile) => parseJestJson(read(outFile)),
+    parse: (outFile, _stdout, ctx) => parseJestJson(read(outFile), ctx),
     outExt: '.json',
     testGlobs: [/\.(test|spec)\.[jt]sx?$/, /(^|\/)__tests__\//],
   },
@@ -105,7 +121,7 @@ export const RUNNERS = [
         args: ['--test', '--test-reporter=junit', '--test-reporter-destination=' + outFile],
       };
     },
-    parse: (outFile) => parseJUnitXml(read(outFile)),
+    parse: (outFile, _stdout, ctx) => parseJUnitXml(read(outFile), ctx),
     outExt: '.xml',
     testGlobs: [/\.(test|spec)\.[cm]?js$/, /(^|\/)test\//],
   },
@@ -124,7 +140,7 @@ export const RUNNERS = [
         junitFallback: true,
       };
     },
-    parse: (outFile) => parseJUnitXml(read(outFile)),
+    parse: (outFile, _stdout, ctx) => parseJUnitXml(read(outFile), ctx),
     outExt: '.xml',
     testGlobs: [/(^|\/)tests?\//, /\.rs$/],
   },

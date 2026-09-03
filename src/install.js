@@ -19,13 +19,31 @@ const OWNED = '_whatran';
 // `npx whatran` when the package is not published — or is only checked out
 // locally — produces a config that silently does nothing, which is worse than
 // one that fails loudly.
-export function hookCommand() {
+export function hookCommand(root) {
   const binPath = fileURLToPath(new URL('../bin/whatran.js', import.meta.url));
-  const installed = binPath.split(path.sep).includes('node_modules');
-  if (installed) return 'npx --no-install whatran hook';
+  const segments = binPath.split(path.sep);
+
+  // npx caches packages under <npm-cache>/_npx/<hash>/node_modules/<pkg>, so
+  // "is it under node_modules" wrongly reported an npx run as a real install
+  // and wrote `npx --no-install whatran hook` — which errors out, because the
+  // package is not in the project. Claude Code treats a non-zero, non-2 exit as
+  // a silent non-blocking error, so the hook died quietly and forever while
+  // init reported success.
+  if (segments.includes('_npx')) return { command: `npx --yes whatran hook`, ephemeral: true };
+
+  // A project-local install: relative, so it survives being committed and
+  // works for every teammate.
+  if (root) {
+    const rel = path.relative(root, binPath);
+    if (segments.includes('node_modules') && rel && !rel.startsWith('..')) {
+      return { command: `node ${quote(rel.split(path.sep).join('/'))} hook`, ephemeral: false };
+    }
+  }
+
   // Running from a clone: point straight at this checkout with the interpreter
-  // that is running right now. Absolute, dependency-free, always resolves.
-  return `${quote(process.execPath)} ${quote(binPath)} hook`;
+  // running right now. Absolute and machine-specific, so it must not be
+  // committed — the caller writes it to a local settings file.
+  return { command: `${quote(process.execPath)} ${quote(binPath)} hook`, ephemeral: false, local: true };
 }
 
 function quote(p) {
@@ -40,11 +58,12 @@ const TARGETS = [
     id: 'claude',
     label: 'Claude Code',
     file: '.claude/settings.json',
+    localFile: '.claude/settings.local.json',
     detect: (root) => fs.existsSync(path.join(root, '.claude')) || fs.existsSync(path.join(root, 'CLAUDE.md')),
-    build: (existing) => {
+    build: (existing, root) => {
       const doc = existing ?? {};
       doc.hooks ??= {};
-      const cmd = hookCommand();
+      const cmd = hookCommand(root).command;
       addHook(doc.hooks, 'SessionStart', {
         [OWNED]: true,
         hooks: [{ type: 'command', command: cmd + ' --event SessionStart', timeout: 900 }],
@@ -61,12 +80,12 @@ const TARGETS = [
     label: 'Codex CLI',
     file: '.codex/hooks.json',
     detect: (root) => fs.existsSync(path.join(root, '.codex')) || fs.existsSync(path.join(root, 'AGENTS.md')),
-    build: (existing) => {
+    build: (existing, root) => {
       const doc = existing ?? {};
       doc.hooks ??= {};
       addHook(doc.hooks, 'Stop', {
         [OWNED]: true,
-        hooks: [{ type: 'command', command: hookCommand(), timeout: 900 }],
+        hooks: [{ type: 'command', command: hookCommand(root).command, timeout: 900 }],
       });
       return doc;
     },
@@ -76,13 +95,15 @@ const TARGETS = [
     label: 'Cursor',
     file: '.cursor/hooks.json',
     detect: (root) => fs.existsSync(path.join(root, '.cursor')),
-    build: (existing) => {
+    build: (existing, root) => {
       const doc = existing ?? { version: 1 };
       doc.hooks ??= {};
-      // Cursor's stop hook cannot block; it re-prompts instead.
+      // Cursor's stop hook cannot block and cannot read stderr: its only
+      // channel is a `followup_message` on stdout. The hook has to be told
+      // which harness invoked it, because it has no other way to know.
       doc.hooks.stop ??= [];
       if (!doc.hooks.stop.some(isOurs)) {
-        doc.hooks.stop.push({ [OWNED]: true, command: hookCommand() });
+        doc.hooks.stop.push({ [OWNED]: true, command: hookCommand(root).command + ' --harness cursor' });
       }
       return doc;
     },
@@ -133,9 +154,11 @@ export function installHooks(root) {
   const out = [];
   const targets = TARGETS.filter((t) => t.detect(root));
   if (!targets.length) {
-    // Nothing detected: still wire Claude Code, since it is the most common
-    // and an unused settings file is harmless.
-    targets.push(TARGETS[0]);
+    // Writing config for a harness that is not here is exactly the behaviour
+    // people resent in other tools. Say what to do instead.
+    out.push('· no agent harness detected here — nothing installed');
+    out.push('  run `whatran check` yourself, or add it to CI with `whatran check --base main`');
+    return out;
   }
   for (const t of targets) {
     const file = path.join(root, t.file);
@@ -151,13 +174,13 @@ export function installHooks(root) {
       }
     }
     try {
-      writeJsonAtomic(file, t.build(existing));
+      writeJsonAtomic(file, t.build(existing, root));
       out.push(`+ ${t.label} hook installed (${t.file})`);
     } catch (err) {
       out.push(`! could not write ${t.file}: ${err.message}`);
     }
   }
-  ensureGitignore(root, out);
+  suggestGitignore(root, out);
   return out;
 }
 
@@ -199,13 +222,17 @@ function stripOwned(node) {
   return removed;
 }
 
-function ensureGitignore(root, out) {
+// Deliberately does NOT edit the user's .gitignore. Appending to a file nobody
+// asked you to touch is the most-resented behaviour in tools of this kind.
+// saveBaseline already writes `.whatran/.gitignore` containing `*`, which is
+// self-contained and is the convention ruff and pytest both use — so this is a
+// suggestion for people who would rather have it listed in one place.
+function suggestGitignore(root, out) {
   const gi = path.join(root, '.gitignore');
   let text = '';
   try { text = fs.readFileSync(gi, 'utf8'); } catch { /* none yet */ }
   if (text.split(/\r?\n/).some((l) => l.trim() === '.whatran/' || l.trim() === '.whatran')) return;
-  fs.writeFileSync(gi, (text && !text.endsWith('\n') ? text + '\n' : text) + `\n# ${MARKER} — local baseline, not shared\n.whatran/\n`);
-  out.push('+ .whatran/ added to .gitignore');
+  out.push(`· ${MARKER}: .whatran/ already ignores itself — add it to .gitignore only if you prefer it listed there`);
 }
 
 // Drops event keys under `hooks` whose array is now empty.

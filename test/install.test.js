@@ -20,7 +20,12 @@ const THEIRS = {
 };
 const UNRELATED = { hooks: [{ type: 'command', command: 'npm run lint' }] };
 
-beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'whatran-inst-')); });
+beforeEach(() => {
+  root = fs.mkdtempSync(path.join(os.tmpdir(), 'whatran-inst-'));
+  // installHooks deliberately refuses to create config for a harness that is
+  // not there, so every case starts with a Claude Code project.
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+});
 afterEach(() => { try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* ignore */ } });
 
 describe('installing into somebody else\'s config', () => {

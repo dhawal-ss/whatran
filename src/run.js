@@ -39,21 +39,52 @@ export function runSuite(runner, cwd, { timeoutMs = 15 * 60 * 1000, env = {} } =
     return fail(`could not start ${runner.label}: ${res.error.code ?? res.error.message}`, res.status);
   }
 
-  let outcomes;
+  let parsed;
   try {
-    outcomes = runner.parse(outFile, stdout);
+    parsed = runner.parse(outFile, stdout, { root: cwd });
   } catch (err) {
     cleanup();
     return fail(`could not parse ${runner.label} output: ${err.message}`, res.status);
   }
   cleanup();
 
+  const outcomes = parsed?.outcomes;
   if (!outcomes || outcomes.size === 0) {
     // No report and a non-zero exit almost always means the suite never got as
     // far as running — a missing dependency, an import error, a bad config.
     const detail = firstMeaningfulLine(stderr) || firstMeaningfulLine(stdout);
     return fail(
       `${runner.label} produced no test results${detail ? ` — ${detail}` : ''}`,
+      res.status,
+    );
+  }
+
+  // A file that failed to load takes every test in it with it, at an exit code
+  // identical to an ordinary failure. Concluding those tests were deleted would
+  // be an accusation caused by a syntax error.
+  if (parsed.unloadable?.length) {
+    return fail(
+      `${parsed.unloadable.length} test file${parsed.unloadable.length === 1 ? '' : 's'} could not `
+      + `be loaded, so the tests inside are missing from the report: ${parsed.unloadable.slice(0, 3).join(', ')}`,
+      res.status,
+    );
+  }
+  if (parsed.buildFailures?.length) {
+    return fail(
+      `${parsed.buildFailures.length} package${parsed.buildFailures.length === 1 ? '' : 's'} failed `
+      + `to build, so their tests never ran: ${parsed.buildFailures.slice(0, 3).join(', ')}`,
+      res.status,
+    );
+  }
+
+  // The runner's own count against ours. If we built fewer distinct ids than it
+  // says it ran, two tests share an id — and every comparison downstream is
+  // unsound. Silently losing tests is worse than any false positive, because
+  // nobody argues with it.
+  if (Number.isFinite(parsed.declared) && parsed.declared > outcomes.size) {
+    return fail(
+      `${runner.label} reported ${parsed.declared} tests but only ${outcomes.size} have distinct `
+      + 'identities — some share a name, so before-and-after cannot be compared reliably',
       res.status,
     );
   }

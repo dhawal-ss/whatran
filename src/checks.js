@@ -290,3 +290,62 @@ export function assertionFreeTests(bare) {
     evidence: bare,
   }];
 }
+
+// ---------------------------------------------------------------------------
+// Identity guard — parametrised families whose size changed.
+//
+// The worst bug this tool can have is a silent false negative, and positional
+// parametrisation produces one. pytest ids a parametrised case by position
+// when the value has no readable form: [v0], [v1], [v2]. Insert a case at the
+// front and every later id now labels a different value — so a failing case
+// silently becomes "the honest transition" while the failure just moved along
+// one. Nothing is missing, nothing broke, and whatran hands out a clean bill.
+//
+// The fix is to notice that the family changed size at all. When it has, no
+// comparison inside it means anything, so say so rather than guessing.
+// ---------------------------------------------------------------------------
+
+// `mod::test_x[v0]` -> `mod::test_x`;  `pkg::TestF/sub#01` -> `pkg::TestF/sub`
+function familyOf(id) {
+  return id.replace(/\[[^\]]*\]$/, '').replace(/#\d+$/, '');
+}
+
+function countByFamily(ids) {
+  const counts = new Map();
+  for (const id of ids) {
+    const f = familyOf(id);
+    if (f === id) continue; // not parametrised; identity is its own name
+    counts.set(f, (counts.get(f) ?? 0) + 1);
+  }
+  return counts;
+}
+
+// Ids whose before/after comparison cannot be trusted, because the family they
+// belong to changed size between the two runs.
+export function unverifiableIds(base, head) {
+  const b = countByFamily(base.keys());
+  const h = countByFamily(head.keys());
+  const shifted = new Set();
+  for (const [fam, n] of b) if (h.get(fam) !== n) shifted.add(fam);
+  for (const [fam, n] of h) if (b.get(fam) !== n) shifted.add(fam);
+  if (!shifted.size) return { ids: new Set(), families: [] };
+
+  const ids = new Set();
+  for (const id of [...base.keys(), ...head.keys()]) {
+    if (shifted.has(familyOf(id))) ids.add(id);
+  }
+  return { ids, families: [...shifted] };
+}
+
+export function identityChanged(families) {
+  if (!families.length) return [];
+  return [{
+    level: NOTICE,
+    code: 'identity-shifted',
+    title: plural(families.length, 'parametrised test changed size', 'parametrised tests changed size'),
+    detail: 'Adding or removing a case renumbers the others, so the same name no longer refers to '
+      + 'the same input. Outcomes inside these cannot be compared before and after, and are '
+      + 'excluded from the findings above.',
+    evidence: families,
+  }];
+}
