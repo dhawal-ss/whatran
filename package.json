@@ -25,9 +25,19 @@
   "files": [
     "bin",
     "src",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "test": "node --test"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dhawal-ss/whatran.git"
+  },
+  "homepage": "https://github.com/dhawal-ss/whatran#readme",
+  "bugs": {
+    "url": "https://github.com/dhawal-ss/whatran/issues"
+  },
+  "author": "dhawal-ss"
 }

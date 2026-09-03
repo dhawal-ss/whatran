@@ -1,3 +1,14 @@
 node_modules/
-.adjuster/
+.whatran/
 *.log
+
+# Working notes never belong in the repo. Only what is needed to build, run,
+# test and understand the project gets committed.
+PLAN*.md
+DESIGN*.md
+NOTES*.md
+RESEARCH*.md
+SCRATCH*.md
+TODO*.md
+prompts/
+scratch/
