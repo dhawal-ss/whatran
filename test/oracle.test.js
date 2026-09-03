@@ -8,7 +8,7 @@ const scan = (file, head, base = '') =>
 
 const finds = (file, head, base = '') => scan(file, head, base).length;
 
-describe('tests that check nothing — Python', () => {
+describe('tests that check nothing, Python', () => {
   test('a plain assert counts', () => {
     assert.strictEqual(finds('test_a.py', 'def test_a():\n    assert 1 == 1\n'), 0);
   });
@@ -35,7 +35,7 @@ describe('tests that check nothing — Python', () => {
   });
 });
 
-describe('tests that check nothing — JavaScript', () => {
+describe('tests that check nothing, JavaScript', () => {
   test('expect() counts', () => {
     assert.strictEqual(finds('a.test.js', "test('x', () => { expect(1).toBe(1); });"), 0);
   });
@@ -73,7 +73,7 @@ describe('tests that check nothing — JavaScript', () => {
   });
 });
 
-describe('tests that check nothing — Go and Rust', () => {
+describe('tests that check nothing, Go and Rust', () => {
   test('t.Fatal counts', () => {
     assert.strictEqual(
       finds('a_test.go', 'func TestA(t *testing.T) {\n if x { t.Fatal("no") }\n}'), 0);
@@ -108,7 +108,7 @@ describe('what it refuses to look at', () => {
     assert.deepStrictEqual(newTestsWithoutAssertions(['a.test.js'], () => '', () => ''), []);
   });
 
-  test('an empty test body is not reported — that is a different problem', () => {
+  test('an empty test body is not reported, that is a different problem', () => {
     assert.strictEqual(finds('a.test.js', "test('x', () => {});"), 0);
   });
 });

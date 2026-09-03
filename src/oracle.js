@@ -68,7 +68,7 @@ export function newTestsWithoutAssertions(changed, readHead, readBase) {
       baseNames = new Set(lang.extract(baseSrc).map((t) => t.name));
     } catch { continue; }
 
-    // Names defined anywhere in the file — used to spot delegation to a helper.
+    // Names defined anywhere in the file, used to spot delegation to a helper.
     const localNames = definedNames(headSrc);
 
     for (const t of headTests) {

@@ -5,7 +5,7 @@ import path from 'node:path';
 
 // Executes a runner and returns { outcomes, exitCode, ok, reason }.
 //
-// `ok: false` means we could not obtain a trustworthy outcome map — NOT that
+// `ok: false` means we could not obtain a trustworthy outcome map, NOT that
 // the tests failed. That distinction is the whole reason this tool can be left
 // switched on: an environment problem must never be reported as a lie.
 export function runSuite(runner, cwd, { timeoutMs = 15 * 60 * 1000, env = {} } = {}) {
@@ -33,8 +33,8 @@ export function runSuite(runner, cwd, { timeoutMs = 15 * 60 * 1000, env = {} } =
     if (res.error.code === 'ETIMEDOUT') {
       return fail(`test run exceeded ${Math.round(timeoutMs / 1000)}s`, res.status);
     }
-    // Anything else — EINVAL from spawning a .cmd without a shell on Windows,
-    // EACCES, EPERM — used to fall through to the generic "no results" message
+    // Anything else, EINVAL from spawning a .cmd without a shell on Windows,
+    // EACCES, EPERM, used to fall through to the generic "no results" message
     // with nothing attached, which told the user nothing at all.
     return fail(`could not start ${runner.label}: ${res.error.code ?? res.error.message}`, res.status);
   }
@@ -51,10 +51,10 @@ export function runSuite(runner, cwd, { timeoutMs = 15 * 60 * 1000, env = {} } =
   const outcomes = parsed?.outcomes;
   if (!outcomes || outcomes.size === 0) {
     // No report and a non-zero exit almost always means the suite never got as
-    // far as running — a missing dependency, an import error, a bad config.
+    // far as running, a missing dependency, an import error, a bad config.
     const detail = firstMeaningfulLine(stderr) || firstMeaningfulLine(stdout);
     return fail(
-      `${runner.label} produced no test results${detail ? ` — ${detail}` : ''}`,
+      `${runner.label} produced no test results${detail ? `: ${detail}` : ''}`,
       res.status,
     );
   }
@@ -78,13 +78,13 @@ export function runSuite(runner, cwd, { timeoutMs = 15 * 60 * 1000, env = {} } =
   }
 
   // The runner's own count against ours. If we built fewer distinct ids than it
-  // says it ran, two tests share an id — and every comparison downstream is
+  // says it ran, two tests share an id, and every comparison downstream is
   // unsound. Silently losing tests is worse than any false positive, because
   // nobody argues with it.
   if (Number.isFinite(parsed.declared) && parsed.declared > outcomes.size) {
     return fail(
       `${runner.label} reported ${parsed.declared} tests but only ${outcomes.size} have distinct `
-      + 'identities — some share a name, so before-and-after cannot be compared reliably',
+      + 'identities, some share a name, so before-and-after cannot be compared reliably',
       res.status,
     );
   }

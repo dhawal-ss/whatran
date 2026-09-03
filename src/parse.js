@@ -130,7 +130,7 @@ export function parseJestJson(text, { root } = {}) {
 
 // `go test -json` is a stream of events, one JSON object per line. The final
 // action for a given (Package, Test) pair is its outcome. Events with no Test
-// field are package-level and deliberately ignored — `skip` there means
+// field are package-level and deliberately ignored, `skip` there means
 // "package contained no tests", which is not a skipped test.
 export function parseGoTestJson(text) {
   const outcomes = new Map();
@@ -165,8 +165,8 @@ function normalise(status) {
 }
 
 const RANK = { passed: 0, skipped: 1, failed: 2 };
-// A backstop only. No runner we support emits duplicate entries for a retry —
-// they all report the final outcome — so in practice this fires only when two
+// A backstop only. No runner we support emits duplicate entries for a retry, 
+// they all report the final outcome, so in practice this fires only when two
 // tests have collided into one id, and the declared-total check above refuses
 // that case before it gets here.
 function worst(a, b) {

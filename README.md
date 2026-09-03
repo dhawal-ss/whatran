@@ -2,7 +2,7 @@
 
 **What your test suite actually ran.**
 
-Your agent says the tests pass. They do — the ones that are left.
+Your agent says the tests pass. They do. The ones that are left.
 
 ```
 $ pytest -q
@@ -39,7 +39,7 @@ npx whatran init
 ```
 
 That's it. It finds your test runner, remembers the current state of your suite, and installs a
-hook so your coding agent is stopped — and told to go back and fix it properly — the moment it
+hook so your coding agent is stopped, and told to go back and fix it properly, the moment it
 removes coverage.
 
 No account, no config file, no cloud, no LLM, no telemetry. Zero runtime dependencies.
@@ -48,7 +48,7 @@ No account, no config file, no cloud, no LLM, no telemetry. Zero runtime depende
 
 | | | |
 |---|---|---|
-| **A failure that stopped failing the honest way** | A test that was **failing** before is now **skipped** or **gone**. The failing test is the specification of the bug — anything other than failed → passed means the specification moved. | `MISSING` |
+| **A failure that stopped failing the honest way** | A test that was **failing** before is now **skipped** or **gone**. The failing test is the specification of the bug, so anything other than failed → passed means the specification moved. | `MISSING` |
 | **A regression** | A test that **passed** before now **fails**. Your change broke something that worked. | `BROKE` |
 | **A test that checks nothing** | A test added by this change with no assertion in it. A test that runs but verifies nothing makes the suite look bigger while proving less. | `NOTICE` |
 | **A moved goalpost** | `conftest.py`, `pytest.ini`, `jest.config`, `.github/workflows/`. A single new `conftest.py` can force an entire suite to report as passed without touching a line of source. | `NOTICE` |
@@ -62,13 +62,13 @@ it. A silenced test **hides**: the suite goes green and the only trace is one li
 
 whatran exists for the second kind, so it only interrupts your agent mid-conversation for
 `MISSING`. Blocking every turn where a test happens to be red would make it unusable during a
-refactor. `BROKE` still fails `whatran check` and CI — and once whatran is interrupting for any
+refactor. `BROKE` still fails `whatran check` and CI, and once whatran is interrupting for any
 reason, it reports everything it found, because the agent is listening anyway.
 
 ## What it will not do
 
 **It will not accuse you when it isn't sure.** If the suite fails to collect, if a dependency is
-missing, if a worktree can't be built — it says so and stays out of your way.
+missing, if a worktree can't be built, it says so and stays out of your way.
 
 ```
   INCONCLUSIVE  pytest exited 2, which means the suite did not run to completion
@@ -80,7 +80,7 @@ broken import gets uninstalled the same afternoon.
 
 **It will not blame your change for a flaky test.** If an accusation is about to be made, the
 suite runs a second time and only what happens twice is reported. And if nothing that could
-affect a test was edited at all, an outcome that moved is flakiness by definition — no change,
+affect a test was edited at all, an outcome that moved is flakiness by definition. No change,
 no regression. Tests caught doing this are remembered and excluded from future accusations until
 you next run `whatran accept` or `whatran snapshot`.
 
@@ -93,12 +93,12 @@ you next run `whatran accept` or `whatran snapshot`.
 The second run only happens when something was actually found, so a clean turn costs nothing.
 
 **It will not flag a passing test that becomes skipped.**
-`@pytest.mark.skipif(sys.platform == "win32")` is a legitimate guard, not a cover-up — and tools
+`@pytest.mark.skipif(sys.platform == "win32")` is a legitimate guard, not a cover-up, and tools
 that grep diffs for skip markers fire on every one of them.
 
 ## Supported runners
 
-Found automatically, using each framework's own built-in reporter — nothing extra to install.
+Found automatically, using each framework's own built-in reporter, so there is nothing extra to install.
 If your project lives in a subfolder, run it from there; it looks where you are, not just at the
 top of the repo.
 
@@ -129,7 +129,7 @@ Exit codes: `0` fine or inconclusive, `1` something is missing or broke, `2` not
 whatran says plainly what it just agreed to before it stops mentioning it:
 
 ```
-  Accepted — pytest
+  Accepted: pytest
   This is now the expected state:
     · 1 failing test disappeared from the suite
         test_auth::test_expired_token_rejected
@@ -142,19 +142,19 @@ whatran says plainly what it just agreed to before it stops mentioning it:
 - run: npx whatran check --base ${{ github.event.pull_request.base.sha }}
 ```
 
-No snapshot needed — it builds one from the ref in a detached worktree.
+No snapshot needed; it builds one from the ref in a detached worktree.
 
 ### With your agent
 
 `npx whatran init` wires up whichever of these it finds:
 
-- **Claude Code** — `SessionStart` remembers the suite, `Stop` blocks the turn and hands the agent
+- **Claude Code**: `SessionStart` remembers the suite, `Stop` blocks the turn and hands the agent
   an instruction to restore the tests.
-- **Codex CLI** — same, via `.codex/hooks.json`.
-- **Cursor** — `stop` hook; Cursor can't block, so it re-prompts instead.
+- **Codex CLI**: same, via `.codex/hooks.json`.
+- **Cursor**: `stop` hook; Cursor can't block, so it re-prompts instead.
 
 When it blocks, the agent is told exactly what went wrong and what to do about *that particular
-thing* — "restore these tests" is the wrong advice for a regression:
+thing*, because "restore these tests" is the wrong advice for a regression:
 
 ```
 whatran compared what your test suite ran before this change with what it runs now.
@@ -174,7 +174,7 @@ Do not modify the test harness to work around any of this.
 
 ## Why it works this way
 
-**It watches outcomes, not edits.** Agents route around checks they can see — one developer
+**It watches outcomes, not edits.** Agents route around checks they can see. One developer
 reported an agent switching to editing files with `sed` to evade a hook. You cannot fake a
 failed → passed transition by changing *how* you edit; the test either runs and passes or it
 doesn't.
@@ -190,7 +190,7 @@ Coverage disappearing by accident is not rare at all, and nothing else tells you
 ## Speed
 
 The agent hook runs on every turn, so it refuses to run your suite when nothing could possibly
-have changed a test outcome — documentation, images, build artefacts, agent config, or no edits
+have changed a test outcome: documentation, images, build artefacts, agent config, or no edits
 at all.
 
 On a repo whose suite takes 3.5s that is the difference between **255ms** and **3540ms** per

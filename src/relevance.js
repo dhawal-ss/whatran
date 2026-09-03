@@ -51,8 +51,8 @@ export function isRelevantFile(f) {
 }
 
 // `sinceRef` must be the commit the baseline was recorded at. Without it this
-// only sees uncommitted work, and an agent that commits its changes — which
-// they routinely do — would sail past the gate with nothing to report.
+// only sees uncommitted work, and an agent that commits its changes, which
+// they routinely do, would sail past the gate with nothing to report.
 export function relevantChanges(root, sinceRef = null) {
   let changed;
   try { changed = changedFiles(root, sinceRef); } catch { return null; }
@@ -63,7 +63,7 @@ export function couldAffectTests(root, sinceRef = null) {
   const relevant = relevantChanges(root, sinceRef);
   // A git failure returns null: assume relevance rather than skip silently.
   if (relevant === null) return true;
-  // An empty list is the other common case — the agent answered a question
+  // An empty list is the other common case, the agent answered a question
   // without editing anything at all.
   return relevant.length > 0;
 }

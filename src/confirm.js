@@ -9,7 +9,7 @@ const OUTCOME_DERIVED = new Set([
 ]);
 
 // A single flaky test is enough to make whatran accuse someone on a tree they
-// never touched — measured at 2 false reports in 5 runs on a fixture with one
+// never touched, measured at 2 false reports in 5 runs on a fixture with one
 // coin-flip test. That breaks the rule everything else here is built on.
 //
 // So: when, and only when, a run-comparison produces an accusation, run the
@@ -51,7 +51,7 @@ export function confirmFindings({ findings, base, headOutcomes, runner, projectD
       code: 'unstable-test',
       title: plural(differed.length, 'test gave a different result', 'tests gave different results')
         + ' on two identical runs',
-      detail: 'Nothing changed between the runs, so this is flakiness or an order dependency — '
+      detail: 'Nothing changed between the runs, so this is flakiness or an order dependency, '
         + 'not something your change did. These are excluded from the findings above.',
       evidence: differed,
     });
@@ -72,7 +72,7 @@ function outcomesThatMoved(a, b) {
 
 // Tests already known to be unstable never produce an accusation again. The
 // ledger is cleared by `whatran accept` and by a fresh snapshot, so a test does
-// not stay exempt forever — otherwise genuinely breaking it would be silent.
+// not stay exempt forever, otherwise genuinely breaking it would be silent.
 export function dropKnownUnstable(findings, knownUnstable) {
   if (!knownUnstable.length) return findings;
   const known = new Set(knownUnstable);

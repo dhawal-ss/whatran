@@ -12,7 +12,7 @@ const STALE_MS = 8 * 60 * 60 * 1000;
 // Gemini CLI and Copilot: a JSON object on stdin, and either exit 2 with a
 // message on stderr, or exit 0 with a decision object on stdout.
 //
-// Exit 2 does not merely warn — it prevents the turn from ending and hands the
+// Exit 2 does not merely warn, it prevents the turn from ending and hands the
 // message back to the agent as its next instruction. That is the difference
 // between a report a human might read later and a correction that happens now.
 export async function runHook(root, flags = {}) {
@@ -29,7 +29,7 @@ export async function runHook(root, flags = {}) {
 
   // This runs on every single turn, and a real suite takes minutes rather than
   // the milliseconds a fixture does. If nothing that could possibly change a
-  // test outcome was touched, running the suite is pure latency — and a tool
+  // test outcome was touched, running the suite is pure latency, and a tool
   // that adds minutes to a turn that edited only a README gets uninstalled for
   // being slow rather than for being wrong.
   const recorded = loadBaseline(projectDirFor(root, null, process.cwd()));
@@ -49,12 +49,12 @@ export async function runHook(root, flags = {}) {
   if (!isBlocking(result.findings)) return 0;
 
   // Deciding to interrupt is narrow, but once we are interrupting, report
-  // everything that is wrong — the agent is listening and it costs nothing.
+  // everything that is wrong, the agent is listening and it costs nothing.
   const message = renderAgentFeedback(result.findings, FAILING_LEVELS);
 
   // Cursor cannot be blocked and never reads stderr: its only documented
   // channel is a followup_message on stdout, which it submits as the next
-  // turn. Writing to stderr and exiting 2 there — as this did — was a silent
+  // turn. Writing to stderr and exiting 2 there, as this did, was a silent
   // no-op, so the Cursor integration did nothing at all.
   if (flags.harness === 'cursor') {
     process.stdout.write(JSON.stringify({ followup_message: message }) + '\n');

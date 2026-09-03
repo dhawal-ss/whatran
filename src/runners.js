@@ -86,7 +86,7 @@ export const RUNNERS = [
     },
     command(outFile, root) {
       // `bail` in a config file makes jest exit before it writes the report at
-      // all — no file, no stdout, exit 1, indistinguishable from a plain test
+      // all, no file, no stdout, exit 1, indistinguishable from a plain test
       // failure. `--bail=0` overrides it.
       return nodeTool(root, 'jest', ['--ci', '--bail=0', '--json', '--outputFile=' + outFile]);
     },
@@ -180,7 +180,7 @@ function pythonBin() {
 // Resolve a locally installed tool's own JS entry point and run it with the
 // current Node binary.
 //
-// The obvious alternative, `npx <tool>`, resolves to `npx.cmd` on Windows —
+// The obvious alternative, `npx <tool>`, resolves to `npx.cmd` on Windows, 
 // and since the CVE-2024-27980 fix Node refuses to spawn .cmd or .bat without
 // a shell, so it fails with EINVAL and no output at all. Going straight to the
 // script sidesteps shells entirely and is faster besides.

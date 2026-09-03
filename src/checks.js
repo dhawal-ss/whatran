@@ -5,10 +5,10 @@ import { stripNonCode } from './strip.js';
 
 // What the tool is willing to say, worst first.
 //
-// MISSING — something that used to run does not run any more.
-// BROKE   — something that used to pass now fails.
-// NOTICE  — worth a glance, but legitimate explanations are common.
-// INTACT  — nothing stopped running.
+// MISSING, something that used to run does not run any more.
+// BROKE, something that used to pass now fails.
+// NOTICE, worth a glance, but legitimate explanations are common.
+// INTACT, nothing stopped running.
 //
 // MISSING and BROKE are treated differently on purpose. A broken test SHOUTS:
 // it is red in the output, the agent sees it, CI sees it, nobody can miss it.
@@ -27,7 +27,7 @@ export const FAILING_LEVELS = new Set([MISSING, BROKE]);
 export const BLOCKING_LEVELS = new Set([MISSING]);
 
 // ---------------------------------------------------------------------------
-// Check 1 — outcome transitions.
+// Check 1, outcome transitions.
 //
 // The signal is NOT "a test is skipped". Plenty of tests are legitimately
 // skipped, and grepping a diff for skip markers fires on every
@@ -75,7 +75,7 @@ export function outcomeTransitions(base, head) {
       level: MISSING,
       code: 'failing-test-removed',
       title: plural(removed.length, 'failing test', 'failing tests') + ' disappeared from the suite',
-      detail: 'These tests were failing before the change and are no longer collected — '
+      detail: 'These tests were failing before the change and are no longer collected, '
         + 'deleted, renamed, or excluded by config.',
       evidence: removed,
     });
@@ -120,7 +120,7 @@ export function outcomeTransitions(base, head) {
 }
 
 // ---------------------------------------------------------------------------
-// Check 2 — harness tampering.
+// Check 2, harness tampering.
 //
 // Cheap, binary, and it catches the strongest known attack: a single new
 // conftest.py can force every test to report as passed without touching a line
@@ -168,7 +168,7 @@ export function harnessTampering(baselineHashes, currentHashes) {
 }
 
 // ---------------------------------------------------------------------------
-// Check 3 — focus locks.
+// Check 3, focus locks.
 //
 // A single stray `.only` silently disables every other test in its file while
 // the suite still reports green and exits 0. Vitest errors on this in CI;
@@ -191,7 +191,7 @@ export function focusLocks(root, changed) {
     try { src = fs.readFileSync(path.join(root, rel), 'utf8'); } catch { continue; }
     for (const line of stripNonCode(src).split(/\r?\n/)) {
       const found = FOCUS_PATTERNS.find((p) => p.re.test(line));
-      if (found) { hits.push(`${rel} — ${found.label}`); break; }
+      if (found) { hits.push(`${rel}, ${found.label}`); break; }
     }
   }
   if (!hits.length) return [];
@@ -210,7 +210,7 @@ export function focusLocks(root, changed) {
 // `test.only` would be reported as a focus lock.
 
 // ---------------------------------------------------------------------------
-// Check 4 — the suite got smaller.
+// Check 4, the suite got smaller.
 //
 // A blunt backstop for every mechanism the specific checks miss: a broken
 // import that drops a whole module from collection, an edited CI filter, a
@@ -241,7 +241,7 @@ export function isFailing(findings) {
   return findings.some((f) => FAILING_LEVELS.has(f.level));
 }
 
-// Should the agent's turn be interrupted? Deliberately narrower — see the
+// Should the agent's turn be interrupted? Deliberately narrower, see the
 // note on the level constants above.
 export function isBlocking(findings) {
   return findings.some((f) => BLOCKING_LEVELS.has(f.level));
@@ -268,7 +268,7 @@ export function collectHarnessState(root, listFiles) {
 }
 
 // ---------------------------------------------------------------------------
-// Check 5 — new tests that do not check anything.
+// Check 5, new tests that do not check anything.
 //
 // A test that runs but verifies nothing is worse than no test at all: the suite
 // looks larger and coverage looks better while nothing is actually proven. It
@@ -285,19 +285,19 @@ export function assertionFreeTests(bare) {
     title: plural(bare.length, 'new test does not appear to check anything',
       'new tests do not appear to check anything'),
     detail: 'These were added by this change and contain no assertion we can see. '
-      + 'A smoke test that only proves the code does not throw is legitimate — but if that '
+      + 'A smoke test that only proves the code does not throw is legitimate, but if that '
       + 'was not the intent, the test is passing for free.',
     evidence: bare,
   }];
 }
 
 // ---------------------------------------------------------------------------
-// Identity guard — parametrised families whose size changed.
+// Identity guard, parametrised families whose size changed.
 //
 // The worst bug this tool can have is a silent false negative, and positional
 // parametrisation produces one. pytest ids a parametrised case by position
 // when the value has no readable form: [v0], [v1], [v2]. Insert a case at the
-// front and every later id now labels a different value — so a failing case
+// front and every later id now labels a different value, so a failing case
 // silently becomes "the honest transition" while the failure just moved along
 // one. Nothing is missing, nothing broke, and whatran hands out a clean bill.
 //
@@ -347,5 +347,25 @@ export function identityChanged(families) {
       + 'the same input. Outcomes inside these cannot be compared before and after, and are '
       + 'excluded from the findings above.',
     evidence: families,
+  }];
+}
+
+// ---------------------------------------------------------------------------
+// Coverage of the repository itself.
+//
+// whatran checks one project. In a monorepo the other suites are never looked
+// at, and a clean result reads as a clean verdict for the whole repository.
+// That is a false green, so it says plainly what it did not look at.
+// ---------------------------------------------------------------------------
+export function uncheckedProjects(dirs) {
+  if (!dirs.length) return [];
+  return [{
+    level: NOTICE,
+    code: 'project-not-checked',
+    title: plural(dirs.length, 'other test suite in this repository was not checked',
+      'other test suites in this repository were not checked'),
+    detail: 'whatran checks one project at a time. Run it from these directories as well, or '
+      + 'this result only speaks for the project it did check.',
+    evidence: dirs,
   }];
 }

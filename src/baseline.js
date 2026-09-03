@@ -13,7 +13,7 @@ export function baselinePath(root) {
 
 // `check` now writes to the baseline (the unstable ledger), so a run that is
 // interrupted mid-write must not leave a half-written file behind. Write to a
-// sibling and rename — rename is atomic on the same filesystem, so a reader
+// sibling and rename, rename is atomic on the same filesystem, so a reader
 // sees either the old file or the new one, never a truncated one.
 function writeAtomic(file, body) {
   const tmp = `${file}.${process.pid}.tmp`;
@@ -103,7 +103,7 @@ export function captureFromRef(root, ref, runner, { link = true, projectDir = ro
     if (!res.ok) {
       return {
         ok: false,
-        reason: `the baseline run at ${ref.slice(0, 12)} could not complete — ${res.reason}. `
+        reason: `the baseline run at ${ref.slice(0, 12)} could not complete, ${res.reason}. `
           + 'A fresh worktree has no installed dependencies, so this is usually an environment '
           + 'problem rather than a real difference.',
       };
@@ -130,7 +130,7 @@ function linkDependencies(root, worktree) {
 // A Python editable install (`pip install -e .`) writes a .pth or .egg-link
 // into site-packages pointing at the ORIGINAL checkout. Linking that venv into
 // a worktree means the base run imports HEAD's source instead of the base
-// commit's — base and head come out identical, every transition vanishes, and
+// commit's, base and head come out identical, every transition vanishes, and
 // the tool reports a confident INTACT on a change it never actually measured.
 //
 // A false green is the worst possible failure direction, so this refuses to

@@ -14,7 +14,7 @@ const MARK = {
 
 const MAX_EVIDENCE = 8;
 
-// Human-readable ledger. Deliberately quiet when there is nothing to say —
+// Human-readable ledger. Deliberately quiet when there is nothing to say, 
 // a tool that prints a wall of text on every turn gets switched off.
 export function renderLedger({ findings, verdict, summary, baseSummary, runner, elapsedMs, inconclusive }) {
   const lines = [];
@@ -27,7 +27,7 @@ export function renderLedger({ findings, verdict, summary, baseSummary, runner, 
     return lines.join('\n');
   }
 
-  // Worst first — the reader should not have to scan for the important line.
+  // Worst first, the reader should not have to scan for the important line.
   const ORDER = [MISSING, BROKE, NOTICE, INTACT];
   const ordered = ORDER.flatMap((level) => findings.filter((f) => f.level === level));
 
@@ -39,7 +39,7 @@ export function renderLedger({ findings, verdict, summary, baseSummary, runner, 
       lines.push(dim('            · ') + e);
     }
     if (f.evidence.length > MAX_EVIDENCE) {
-      lines.push(dim(`            · …and ${f.evidence.length - MAX_EVIDENCE} more`));
+      lines.push(dim(`            · …and ${f.evidence.length, MAX_EVIDENCE} more`));
     }
     lines.push('');
   }
@@ -68,7 +68,7 @@ function describeSuite(before, after) {
 // by whatever is reading it next.
 // What to tell the agent, per kind of finding. This string is the tool's entire
 // influence over what happens next, so each finding gets advice that actually
-// fits it — "restore these tests" is the wrong instruction for a regression,
+// fits it, "restore these tests" is the wrong instruction for a regression,
 // and worse than useless for uncovered code.
 const GUIDANCE = {
   'failing-test-silenced':
@@ -89,7 +89,7 @@ const GUIDANCE = {
   'uncovered-change':
     'Add tests that actually exercise these lines, or explain why they cannot be tested.',
   'test-vanished':
-    'These tests are no longer collected. If you renamed or moved them, that is fine — say so. '
+    'These tests are no longer collected. If you renamed or moved them, that is fine, say so. '
     + 'If you did neither, find out what stopped collecting them.',
 };
 
@@ -105,7 +105,7 @@ export function renderAgentFeedback(findings, levels) {
     parts.push(`\n${f.title}:`);
     for (const e of f.evidence.slice(0, MAX_EVIDENCE)) parts.push(`    ${e}`);
     if (f.evidence.length > MAX_EVIDENCE) {
-      parts.push(`    …and ${f.evidence.length - MAX_EVIDENCE} more`);
+      parts.push(`    …and ${f.evidence.length, MAX_EVIDENCE} more`);
     }
     parts.push(`  -> ${GUIDANCE[f.code] ?? FALLBACK_GUIDANCE}`);
   }

@@ -3,8 +3,9 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { resolveProject } from '../src/project.js';
+import { resolveProject, otherProjects } from '../src/project.js';
 import { detectRunners, CONFIDENCE } from '../src/runners.js';
+import { uncheckedProjects, NOTICE } from '../src/checks.js';
 
 let root;
 
@@ -88,5 +89,43 @@ describe('weighing the evidence', () => {
   test('a stray test file is the weakest signal', () => {
     const found = detectRunners(path.join(root, 'app'));
     assert.strictEqual(found.find((r) => r.id === 'pytest').confidence, CONFIDENCE.GUESSED);
+  });
+});
+
+// whatran checks one project. Saying nothing about the others made a clean
+// result read as a clean verdict for the whole repository, which is a false
+// green: the one failure direction everything else here is careful about.
+describe('what it did not check', () => {
+  // The fixture is the monorepo shape from the tests above: a Vitest app with
+  // Python infra scripts beside it. Checking the app says nothing about those,
+  // so they have to be named.
+  test('names other test suites in the repository', () => {
+    const found = otherProjects(root, path.join(root, 'app'));
+    assert.deepStrictEqual(found, ['app/infra']);
+  });
+
+  test('a second package is reported as unchecked', () => {
+    const mono = fs.mkdtempSync(path.join(os.tmpdir(), 'whatran-mono-'));
+    try {
+      for (const p of ['a', 'b']) {
+        fs.mkdirSync(path.join(mono, 'packages', p), { recursive: true });
+        fs.writeFileSync(
+          path.join(mono, 'packages', p, 'package.json'),
+          JSON.stringify({ name: p, scripts: { test: 'node --test' } }),
+        );
+      }
+      const found = otherProjects(mono, path.join(mono, 'packages', 'a'));
+      assert.deepStrictEqual(found, ['packages/b']);
+    } finally { fs.rmSync(mono, { recursive: true, force: true }); }
+  });
+
+  test('the finding is a notice, never an accusation', () => {
+    const f = uncheckedProjects(['packages/b']);
+    assert.strictEqual(f[0].level, NOTICE);
+    assert.deepStrictEqual(f[0].evidence, ['packages/b']);
+  });
+
+  test('nothing is said when there is only one project', () => {
+    assert.deepStrictEqual(uncheckedProjects([]), []);
   });
 });

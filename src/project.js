@@ -1,9 +1,10 @@
 import path from 'node:path';
+import fs from 'node:fs';
 import { detectRunners, getRunner } from './runners.js';
 
 // A git repository is not the same thing as a project. Monorepos, and any
 // layout where the app lives in a subfolder, put the test runner somewhere
-// below the repo root — so detecting only at the root reports "no test runner"
+// below the repo root, so detecting only at the root reports "no test runner"
 // for repositories that obviously have one.
 //
 // Search from where the user actually is, walking upwards, and stop at the
@@ -46,4 +47,39 @@ function ancestors(cwd, gitRoot) {
 
 function safeDetect(runner, dir) {
   try { return runner.detect(dir); } catch { return false; }
+}
+
+const SKIP_DIRS = new Set([
+  'node_modules', '.git', '.venv', 'venv', 'target', 'dist', 'build',
+  '.next', '.turbo', 'vendor', '__pycache__', '.whatran',
+]);
+
+// Other directories in this repo that also have a test suite.
+//
+// resolveProject picks one project and checks it. In a monorepo that means the
+// other suites are never looked at, while the output reads as a clean verdict
+// for the whole repository. Saying nothing there is a false green, which is the
+// one failure direction this tool is otherwise careful about, so it has to say
+// what it did not check.
+export function otherProjects(gitRoot, chosenDir, maxDepth = 3) {
+  if (!gitRoot) return [];
+  const found = [];
+  const chosen = path.resolve(chosenDir);
+  const stack = [[path.resolve(gitRoot), 0]];
+  while (stack.length) {
+    const [dir, depth] = stack.pop();
+    if (depth > maxDepth) continue;
+    if (path.resolve(dir) !== chosen && detectRunners(dir).length) {
+      found.push(path.relative(gitRoot, dir).split(path.sep).join('/') || '.');
+      // A project's own subdirectories are part of it, not separate projects.
+      continue;
+    }
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      if (!e.isDirectory() || e.name.startsWith('.') || SKIP_DIRS.has(e.name)) continue;
+      stack.push([path.join(dir, e.name), depth + 1]);
+    }
+  }
+  return found;
 }

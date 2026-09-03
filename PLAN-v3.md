@@ -1,4 +1,4 @@
-# whatran v3 — earn the right to be left switched on
+# whatran v3 - earn the right to be left switched on
 
 ## The problem, measured
 A single flaky test makes whatran accuse the user on an UNTOUCHED tree.

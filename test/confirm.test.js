@@ -19,15 +19,15 @@ describe('known-unstable tests are never accused again', () => {
     assert.deepStrictEqual(out[0].evidence, ['a::real']);
   });
 
-  test('notices are left alone — they are not accusations', () => {
+  test('notices are left alone, they are not accusations', () => {
     const f = [finding(NOTICE, 'passing-test-skipped', ['a::flaky'])];
     assert.deepStrictEqual(dropKnownUnstable(f, ['a::flaky']), f);
   });
 
   // Static file checks cannot flake, so the ledger must not touch them.
   test('file-based findings are untouched by the ledger', () => {
-    const f = [finding(MISSING, 'focus-lock', ['a.test.js — .only'])];
-    assert.deepStrictEqual(dropKnownUnstable(f, ['a.test.js — .only']), f);
+    const f = [finding(MISSING, 'focus-lock', ['a.test.js, .only'])];
+    assert.deepStrictEqual(dropKnownUnstable(f, ['a.test.js, .only']), f);
   });
 
   test('an empty ledger changes nothing', () => {
@@ -42,7 +42,7 @@ describe('when a second opinion is worth paying for', () => {
   // Re-running a whole suite because a stray `.only` appeared would cost
   // minutes for a check that cannot possibly flake.
   test('a focus lock alone does not trigger a re-run', () => {
-    const findings = [finding(MISSING, 'focus-lock', ['a.test.js — .only'])];
+    const findings = [finding(MISSING, 'focus-lock', ['a.test.js, .only'])];
     const out = confirmFindings({
       findings, base: new Map(), headOutcomes: new Map(),
       runner: { command: neverRun, label: 'x', outExt: '.xml', parse: neverRun },

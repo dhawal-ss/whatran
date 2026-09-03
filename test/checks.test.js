@@ -90,7 +90,7 @@ describe('harness tampering', () => {
     assert.deepStrictEqual(harnessTampering({ 'conftest.py': 'aaa' }, state({ 'conftest.py': 'aaa' })), []);
   });
 
-  test('never denies on its own - editing config is often the point', () => {
+  test('never denies on its own, editing config is often the point', () => {
     assert.strictEqual(harnessTampering({}, state({ 'conftest.py': 'x' }))[0].level, NOTICE);
   });
 

@@ -1,10 +1,10 @@
-import { resolveProject } from './project.js';
+import { resolveProject, otherProjects } from './project.js';
 import { runSuite, summarise } from './run.js';
 import { loadBaseline, captureFromRef, saveBaseline, recordUnstable } from './baseline.js';
 import { changedFiles, head as gitHead, mergeBase, listFiles, listFilesAtRef, fileAtRef } from './git.js';
 import {
   outcomeTransitions, harnessTampering, focusLocks, suiteShrank, verdict,
-  collectHarnessState, isHarnessFile, assertionFreeTests, unverifiableIds, identityChanged,
+  collectHarnessState, isHarnessFile, assertionFreeTests, unverifiableIds, identityChanged, uncheckedProjects,
   MISSING, BROKE, NOTICE, INTACT, FAILING_LEVELS,
 } from './checks.js';
 import { newTestsWithoutAssertions } from './oracle.js';
@@ -21,7 +21,7 @@ export function pickRunner(root, explicit, cwd = root) {
 }
 
 // Where the suite runs and where its baseline lives. Not necessarily the git
-// root — see project.js.
+// root, see project.js.
 export function projectDirFor(root, explicit, cwd = root) {
   return resolveProject(cwd, root, explicit).dir;
 }
@@ -53,14 +53,14 @@ export function whatran(root, opts = {}) {
     const saved = loadBaseline(projectDir);
     if (!saved) {
       return inconclusive(
-        'no baseline recorded yet — run `whatran snapshot` on a known-good tree first, '
+        'no baseline recorded yet, run `whatran snapshot` on a known-good tree first, '
         + 'or pass --base <ref> to compare against a git ref',
         { runner: runner.label },
       );
     }
     if (saved.stale) {
       return inconclusive(
-        `the recorded baseline is unusable (${saved.stale}) — it was probably written by an `
+        `the recorded baseline is unusable (${saved.stale}), it was probably written by an `
         + 'older whatran. Run `whatran snapshot` to record a fresh one.',
         { runner: runner.label },
       );
@@ -100,7 +100,7 @@ export function whatran(root, opts = {}) {
   const missing = countMissing(base, now.outcomes);
   if (base.size > 0 && missing / base.size > 0.5) {
     return inconclusive(
-      `${missing} of ${base.size} baseline tests are missing — that is a collection failure, `
+      `${missing} of ${base.size} baseline tests are missing, that is a collection failure, `
       + 'not a targeted removal. Fix the suite, then re-check.',
       { runner: runner.label },
     );
@@ -112,7 +112,7 @@ export function whatran(root, opts = {}) {
 
   // A parametrised family that changed size renumbers its own cases, so the
   // same id no longer names the same input. Exclude those before anything is
-  // claimed about them — including the "honest transition", which is how this
+  // claimed about them, including the "honest transition", which is how this
   // produced a silent clean bill on a failure that had merely moved.
   const identity = unverifiableIds(base, now.outcomes);
   const excluded = [...knownUnstable, ...identity.ids];
@@ -121,8 +121,8 @@ export function whatran(root, opts = {}) {
 
   // If nothing that could affect a test outcome changed, then a "regression"
   // is impossible by construction: whatever moved, this change did not move it.
-  // A confirmation run cannot establish that — two runs of a coin-flip test
-  // agree a quarter of the time — but the absence of any relevant edit can, and
+  // A confirmation run cannot establish that, two runs of a coin-flip test
+  // agree a quarter of the time, but the absence of any relevant edit can, and
   // it costs nothing.
   const relevant = relevantChanges(root, sinceRef);
   const nothingChanged = relevant !== null && relevant.length === 0;
@@ -168,9 +168,10 @@ export function whatran(root, opts = {}) {
   const findings = [
     ...outcomeFindings,
     ...identityChanged(identity.families),
+    ...uncheckedProjects(otherProjects(root, projectDir)),
     ...focusLocks(root, changed),
     ...harnessTampering(baselineHarness, collectHarnessState(root, () => listFiles(root))),
-    // Needs a ref to diff against — without one, every test looks new.
+    // Needs a ref to diff against, without one, every test looks new.
     ...(sinceRef ? assertionFreeTests(newTestsWithoutAssertions(
       changed,
       (rel) => { try { return fsMod.readFileSync(pathMod.join(root, rel), 'utf8'); } catch { return ''; } },
@@ -252,7 +253,7 @@ function harnessStateAtRef(root, ref) {
 
 // Re-records the baseline from the current state, and says plainly what that
 // changed. Without this there is no way to tell whatran "yes, that was
-// deliberate" — deleting a genuinely obsolete test would mean being nagged
+// deliberate", deleting a genuinely obsolete test would mean being nagged
 // until someone thought to re-run `snapshot`. Every linter needs an escape
 // hatch; without one people switch the tool off rather than argue with it.
 export function accept(root, opts = {}) {

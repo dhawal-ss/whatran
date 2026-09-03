@@ -10,7 +10,7 @@ import { installHooks, uninstallHooks } from '../src/install.js';
 import { detectRunners } from '../src/runners.js';
 
 const HELP = `
-  whatran — catches the test that stopped running.
+  whatran: catches the test that stopped running.
 
   Usage
     whatran                     check the working tree against the recorded baseline
@@ -100,7 +100,7 @@ function cmdSnapshot() {
     process.stdout.write(renderJson(res) + '\n');
   } else {
     process.stdout.write(
-      `\n  Baseline recorded — ${res.runner}\n`
+      `\n  Baseline recorded, ${res.runner}\n`
       + `  ${s.total} tests: ${s.passed} passed, ${s.failed} failed, ${s.skipped} skipped\n`
       + `  Saved to ${res.path}\n\n`
       + `  Anything that stops running from here on will be reported.\n\n`,
@@ -205,7 +205,7 @@ function cmdAccept() {
   if (flags.json) { process.stdout.write(renderJson(res) + '\n'); return; }
 
   const s = res.summary;
-  process.stdout.write(`\n  Accepted — ${res.runner}\n`);
+  process.stdout.write(`\n  Accepted, ${res.runner}\n`);
   if (!res.hadBaseline) {
     process.stdout.write('  There was nothing recorded before, so this is simply the new baseline.\n');
   } else if (!res.accepted.length) {

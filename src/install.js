@@ -9,15 +9,15 @@ const MARKER = 'whatran hook';
 //
 // The previous version matched the substring "whatran" anywhere in the
 // serialised config. That deleted a user's own unrelated hook whose command
-// merely referenced a path containing the word — demonstrated, silently, with
+// merely referenced a path containing the word, demonstrated, silently, with
 // no way to get it back. Never identify your own data in someone else's file by
 // guessing at its contents.
 const OWNED = '_whatran';
 
 // The hook config has to name a command that will actually resolve months from
 // now, on a machine that may never have installed anything. Writing
-// `npx whatran` when the package is not published — or is only checked out
-// locally — produces a config that silently does nothing, which is worse than
+// `npx whatran` when the package is not published, or is only checked out
+// locally, produces a config that silently does nothing, which is worse than
 // one that fails loudly.
 export function hookCommand(root) {
   const binPath = fileURLToPath(new URL('../bin/whatran.js', import.meta.url));
@@ -25,7 +25,7 @@ export function hookCommand(root) {
 
   // npx caches packages under <npm-cache>/_npx/<hash>/node_modules/<pkg>, so
   // "is it under node_modules" wrongly reported an npx run as a real install
-  // and wrote `npx --no-install whatran hook` — which errors out, because the
+  // and wrote `npx --no-install whatran hook`, which errors out, because the
   // package is not in the project. Claude Code treats a non-zero, non-2 exit as
   // a silent non-blocking error, so the hook died quietly and forever while
   // init reported success.
@@ -42,7 +42,7 @@ export function hookCommand(root) {
 
   // Running from a clone: point straight at this checkout with the interpreter
   // running right now. Absolute and machine-specific, so it must not be
-  // committed — the caller writes it to a local settings file.
+  // committed, the caller writes it to a local settings file.
   return { command: `${quote(process.execPath)} ${quote(binPath)} hook`, ephemeral: false, local: true };
 }
 
@@ -156,7 +156,7 @@ export function installHooks(root) {
   if (!targets.length) {
     // Writing config for a harness that is not here is exactly the behaviour
     // people resent in other tools. Say what to do instead.
-    out.push('· no agent harness detected here — nothing installed');
+    out.push('· no agent harness detected here, nothing installed');
     out.push('  run `whatran check` yourself, or add it to CI with `whatran check --base main`');
     return out;
   }
@@ -165,7 +165,7 @@ export function installHooks(root) {
     let existing = null;
     if (fs.existsSync(file)) {
       try { existing = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {
-        out.push(`! ${t.file} exists but is not valid JSON — left untouched`);
+        out.push(`! ${t.file} exists but is not valid JSON, left untouched`);
         continue;
       }
       if (alreadyInstalled(existing)) {
@@ -225,14 +225,14 @@ function stripOwned(node) {
 // Deliberately does NOT edit the user's .gitignore. Appending to a file nobody
 // asked you to touch is the most-resented behaviour in tools of this kind.
 // saveBaseline already writes `.whatran/.gitignore` containing `*`, which is
-// self-contained and is the convention ruff and pytest both use — so this is a
+// self-contained and is the convention ruff and pytest both use, so this is a
 // suggestion for people who would rather have it listed in one place.
 function suggestGitignore(root, out) {
   const gi = path.join(root, '.gitignore');
   let text = '';
   try { text = fs.readFileSync(gi, 'utf8'); } catch { /* none yet */ }
   if (text.split(/\r?\n/).some((l) => l.trim() === '.whatran/' || l.trim() === '.whatran')) return;
-  out.push(`· ${MARKER}: .whatran/ already ignores itself — add it to .gitignore only if you prefer it listed there`);
+  out.push(`· ${MARKER}: .whatran/ already ignores itself, add it to .gitignore only if you prefer it listed there`);
 }
 
 // Drops event keys under `hooks` whose array is now empty.

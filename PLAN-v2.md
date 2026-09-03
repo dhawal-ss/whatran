@@ -1,4 +1,4 @@
-# whatran v2 — from "gotcha" to "gets better work out of the agent"
+# whatran v2 - from "gotcha" to "gets better work out of the agent"
 
 ## The problem with v1
 It only answers one question (did a test stop running) and only ever says NO.
@@ -17,7 +17,7 @@ BREAKS a working test, which is the most obvious thing a developer wants to know
 The agent broke something that worked. Report it, name the test, exit non-zero.
 Also covers passed->error.
 
-### 2. `whatran brief` — proactive guidance     [BEST OUTCOME LEVER]
+### 2. `whatran brief` - proactive guidance     [BEST OUTCOME LEVER]
 Injected at SessionStart / UserPromptSubmit. Tells the agent, before it starts:
   - how many tests exist, and exactly which are currently failing
   - that those failing tests are the specification of the work
@@ -40,7 +40,7 @@ The agent says "I ran the migration" / "I updated auth.py". Check it:
   - a claimed file was actually touched
 Fed by a structured claims block the skill asks the agent to emit.
 
-### 5. `whatran report` — the 10-second review  [HUMAN LEVERAGE]
+### 5. `whatran report` - the 10-second review  [HUMAN LEVERAGE]
 What changed, what tests moved, what it cost. So a human can review agent work
 without reading every diff.
 
