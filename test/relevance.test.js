@@ -2,6 +2,10 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import { stripNonCode } from '../src/strip.js';
 import { isRelevantFile } from '../src/relevance.js';
+import { focusLocks } from '../src/checks.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 describe('stripNonCode', () => {
   test('blanks line comments but keeps the line count', () => {
@@ -37,9 +41,18 @@ describe('stripNonCode', () => {
 
 // These matter because a false MISSING on a test file that merely *mentions*
 // focus locks would be an embarrassing and trust-destroying bug.
-describe('focus detection via stripNonCode', () => {
-  const FOCUS = /^\s*(?:await\s+)?(?:describe|it|test|suite|bench)\s*\.\s*only\s*[.(]/;
-  const fires = (src) => stripNonCode(src).split('\n').some((l) => FOCUS.test(l));
+//
+// Deliberately routed through the real `focusLocks`, on real files. These used
+// to re-declare the pattern locally and test that copy, so every one of them
+// would still have passed if checks.js had been deleted outright.
+describe('focus detection, through the real check', () => {
+  const fires = (src) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'whatran-rel-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'a.test.js'), src);
+      return focusLocks(dir, ['a.test.js']).length > 0;
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  };
 
   test('fires on a real focused test', () => {
     assert.strictEqual(fires("test.only('a', () => {});"), true);
@@ -60,11 +73,16 @@ describe('focus detection via stripNonCode', () => {
   test('does NOT fire on a property access mid-expression', () => {
     assert.strictEqual(fires('const x = config.test.only;'), false);
   });
+
+  test('does NOT fire on a file that was never edited', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'whatran-rel-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'a.test.js'), "test.only('a', () => {});");
+      assert.deepStrictEqual(focusLocks(dir, []), []);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
 });
 
-// Regression: a repo that tracks build artefacts must not defeat the gate.
-// __pycache__/*.pyc is rewritten by the act of running the suite itself, so
-// treating it as relevant makes every turn look like a code change.
 describe('relevance gate', () => {
   const fixture = (files) => files.filter(isRelevantFile);
 

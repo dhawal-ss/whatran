@@ -1,13 +1,9 @@
-import { whatran, snapshot } from './whatran.js';
+import { whatran, ensureBaseline, projectDirFor, pickRunner } from './whatran.js';
 import { isBlocking, FAILING_LEVELS } from './checks.js';
 import { renderAgentFeedback } from './report.js';
 import { loadBaseline } from './baseline.js';
-import { projectDirFor } from './whatran.js';
-import { head as gitHead } from './git.js';
 import { couldAffectTests } from './relevance.js';
 import { shouldWake, clearWake, acquireLock } from './wake.js';
-
-const STALE_MS = 8 * 60 * 60 * 1000;
 
 // Hook protocol shared, with small differences, by Claude Code, Codex CLI,
 // Gemini CLI and Copilot: a JSON object on stdin, and either exit 2 with a
@@ -20,9 +16,7 @@ export async function runHook(root, flags = {}) {
   const input = await readStdinJson();
   const event = input.hook_event_name ?? input.hookEventName ?? flags.event ?? 'Stop';
 
-  if (event === 'SessionStart' || flags.event === 'SessionStart') {
-    return handleSessionStart(root);
-  }
+  if (event === 'SessionStart') return handleSessionStart(root);
 
   // Claude Code sets this when the current stop was itself triggered by a hook.
   // Without this guard a failing check would fight the agent in a loop.
@@ -33,19 +27,27 @@ export async function runHook(root, flags = {}) {
   // test outcome was touched, running the suite is pure latency, and a tool
   // that adds minutes to a turn that edited only a README gets uninstalled for
   // being slow rather than for being wrong.
-  const recorded = loadBaseline(projectDirFor(root, null, process.cwd()));
-  if (!couldAffectTests(root, recorded?.ref ?? null)) return 0;
+  const projectDir = projectDirFor(root, null, process.cwd());
+  const recorded = loadBaseline(projectDir);
+  if (!couldAffectTests(root, recorded && !recorded.stale ? recorded.ref : null)) return 0;
 
   // Background hooks can overlap with themselves. Without this, a few quick
   // turns on a repo with a slow suite would start several full runs at once.
-  const release = acquireLock(projectDirFor(root, null, process.cwd()));
+  const release = acquireLock(projectDir);
   if (!release) {
-    if (process.env.WHATRAN_DEBUG) process.stderr.write('whatran: another check is already running\n');
+    debug('another check is already running');
     return 0;
   }
   let result;
   try {
-    result = whatran(root, { cwd: process.cwd(), timeoutMs: flags.timeout ? flags.timeout * 1000 : undefined });
+    result = whatran(root, {
+      cwd: process.cwd(),
+      timeoutMs: flags.timeout ? flags.timeout * 1000 : undefined,
+      // A first turn in a project that has never been snapshotted should still
+      // check something, rather than reporting nothing forever because a setup
+      // step was skipped. ensureBaseline never records from a dirty tree.
+      autoBaseline: true,
+    });
   } finally {
     release();
   }
@@ -53,11 +55,9 @@ export async function runHook(root, flags = {}) {
   // Inconclusive must never block. If we cannot obtain trustworthy evidence,
   // the honest answer is silence, not an accusation.
   if (!result.ok) {
-    if (process.env.WHATRAN_DEBUG) process.stderr.write(`whatran: ${result.inconclusive}\n`);
+    debug(result.inconclusive);
     return 0;
   }
-
-  const projectDir = projectDirFor(root, null, process.cwd());
 
   // Only interrupt for things that would otherwise go unnoticed. A test that
   // now fails is already red in the output; a test that stopped running is not.
@@ -73,9 +73,7 @@ export async function runHook(root, flags = {}) {
   // whatran keeps its own count rather than relying on someone else's.
   const wake = shouldWake(projectDir, result.findings.filter((f) => FAILING_LEVELS.has(f.level)));
   if (!wake.allowed) {
-    if (process.env.WHATRAN_DEBUG) {
-      process.stderr.write(`whatran: same findings ${wake.attempt} times, staying quiet\n`);
-    }
+    debug(`same findings ${wake.attempt} times, staying quiet`);
     return 0;
   }
 
@@ -100,32 +98,59 @@ export async function runHook(root, flags = {}) {
   return 2;
 }
 
+// Recording a baseline at session start is the whole reason the tool knows what
+// "before" means. But it must never overwrite one that already exists.
+//
+// It used to re-record whenever HEAD had moved, which is the normal case: an
+// agent skips a failing test and commits, the next session starts, HEAD differs,
+// and the skip is silently written into the definition of normal. The evidence
+// is then gone permanently, and the suite is green. That is a false green
+// manufactured by the tool itself, in the exact direction it exists to prevent.
+//
+// So: record only when there is nothing recorded. A stale baseline is left
+// alone too, because a version bump whatran itself caused must not be the
+// trigger for erasing everyone's history; the check path heals that safely,
+// measuring a dirty tree against HEAD rather than against itself.
 function handleSessionStart(root) {
-  const existing = loadBaseline(projectDirFor(root, null, process.cwd()));
-  const current = gitHead(root);
-  const fresh = existing
-    && !existing.stale
-    && existing.ref === current
-    && Date.now() - Date.parse(existing.createdAt) < STALE_MS;
-  if (fresh) return 0;
-
-  const res = snapshot(root, { cwd: process.cwd() });
-  if (!res.ok) {
-    if (process.env.WHATRAN_DEBUG) process.stderr.write(`whatran: ${res.reason}\n`);
+  const projectDir = projectDirFor(root, null, process.cwd());
+  const existing = loadBaseline(projectDir);
+  if (existing) {
+    debug(existing.stale ? `baseline is ${existing.stale}; left alone` : 'baseline already recorded');
     return 0;
   }
+  const runner = pickRunner(root, null, process.cwd());
+  if (!runner) { debug('no supported test runner detected'); return 0; }
+  const made = ensureBaseline(root, { runner, projectDir });
+  if (!made.ok) debug(made.reason);
   return 0;
+}
+
+function debug(msg) {
+  if (process.env.WHATRAN_DEBUG && msg) process.stderr.write(`whatran: ${msg}\n`);
 }
 
 function readStdinJson() {
   return new Promise((resolve) => {
     if (process.stdin.isTTY) return resolve({});
     let buf = '';
-    const timer = setTimeout(() => resolve(safeParse(buf)), 2000);
+    let done = false;
+    const finish = (value) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      process.stdin.removeAllListeners('data');
+      process.stdin.removeAllListeners('end');
+      process.stdin.removeAllListeners('error');
+      resolve(value);
+    };
+    // A partial buffer parses to nothing, and the previous version left its
+    // listeners attached afterwards, so a slow writer kept the process alive
+    // with a result already returned.
+    const timer = setTimeout(() => finish(safeParse(buf)), 2000);
     process.stdin.setEncoding('utf8');
     process.stdin.on('data', (d) => { buf += d; });
-    process.stdin.on('end', () => { clearTimeout(timer); resolve(safeParse(buf)); });
-    process.stdin.on('error', () => { clearTimeout(timer); resolve({}); });
+    process.stdin.on('end', () => finish(safeParse(buf)));
+    process.stdin.on('error', () => finish({}));
   });
 }
 

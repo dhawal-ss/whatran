@@ -12,3 +12,16 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '${{ matrix.node }}' }
       - run: node --test
+
+  # whatran checking whatran. If a change to this repository removes coverage,
+  # the tool should be the thing that says so.
+  whatran:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # whatran needs the base commit, not just the tip
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: node bin/whatran.js check --base ${{ github.event.pull_request.base.sha }} --strict

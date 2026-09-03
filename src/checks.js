@@ -35,20 +35,48 @@ export const BLOCKING_LEVELS = new Set([MISSING]);
 // FAILING and is now NOT RUNNING: the failing test is the specification of the
 // bug, so anything other than failed -> passed means the specification moved.
 // ---------------------------------------------------------------------------
-export function outcomeTransitions(base, head) {
+// `changed` is the set of files this change touched. A passing test that simply
+// stopped being collected is usually a rename and only a NOTICE, but one that
+// vanished from a file this very change edited is a different claim: something
+// the agent just did stopped that test running, and if it stays a NOTICE the
+// hook says nothing at all.
+export function outcomeTransitions(base, head, changed = null) {
   const findings = [];
   const silenced = [];
   const removed = [];
   const fixed = [];
   const newlySkipped = [];
   const vanished = [];
+  const vanishedFromEdited = [];
 
   const regressed = [];
+  const edited = changed ? new Set(changed) : null;
+  // How many tests each file contributed, before and after. A file that lost an
+  // id but did not get smaller was reorganised: renaming a describe block
+  // changes every id inside it, and calling that lost coverage would fire on
+  // one of the most ordinary edits there is. A file that actually shrank is the
+  // case worth interrupting for.
+  const perFile = (map) => {
+    const n = new Map();
+    for (const id of map.keys()) {
+      const f = fileOfId(id);
+      if (f) n.set(f, (n.get(f) ?? 0) + 1);
+    }
+    return n;
+  };
+  const wasSize = perFile(base);
+  const nowSize = perFile(head);
+  const fileShrank = (id) => {
+    const f = fileOfId(id);
+    return Boolean(f) && (nowSize.get(f) ?? 0) < (wasSize.get(f) ?? 0);
+  };
 
   for (const [id, was] of base) {
     const now = head.get(id);
     if (now === undefined) {
-      (was === 'failed' ? removed : vanished).push(id);
+      if (was === 'failed') removed.push(id);
+      else if (edited && edited.has(fileOfId(id)) && fileShrank(id)) vanishedFromEdited.push(id);
+      else vanished.push(id);
     } else if (was === 'failed' && now === 'skipped') {
       silenced.push(id);
     } else if (was === 'failed' && now === 'passed') {
@@ -89,6 +117,17 @@ export function outcomeTransitions(base, head) {
       evidence: regressed,
     });
   }
+  if (vanishedFromEdited.length) {
+    findings.push({
+      level: MISSING,
+      code: 'test-stopped-running',
+      title: plural(vanishedFromEdited.length, 'passing test', 'passing tests')
+        + ' stopped running in a file this change edited',
+      detail: 'These were being collected before and are not now, in files this change touched. '
+        + 'A rename would explain it; so would a deletion, and the suite reports green either way.',
+      evidence: vanishedFromEdited,
+    });
+  }
   if (vanished.length) {
     findings.push({
       level: NOTICE,
@@ -127,13 +166,22 @@ export function outcomeTransitions(base, head) {
 // of source. Benchmarks have been scored 100% this way. Almost nobody looks
 // outside the test files themselves.
 // ---------------------------------------------------------------------------
+// The two most common places a suite is actually configured were missing:
+// pyproject.toml carries `[tool.pytest.ini_options] addopts`, and package.json
+// carries both the `test` script and jest's entire config. Either one can
+// deselect a whole directory without touching a test file.
 const HARNESS_FILES = [
-  'conftest.py', 'pytest.ini', 'tox.ini', 'setup.cfg', 'noxfile.py',
-  'jest.config', 'vitest.config', 'karma.conf', 'playwright.config',
+  'conftest.py', 'pytest.ini', '.pytest.ini', 'tox.ini', 'setup.cfg', 'setup.py',
+  'noxfile.py', 'pyproject.toml', 'package.json',
+  'jest.config', 'vitest.config', 'vitest.workspace', 'vite.config',
+  'karma.conf', 'playwright.config', 'cypress.config',
   'phpunit.xml', 'Makefile', 'justfile', 'Taskfile',
   '.mocharc', 'nextest.toml', 'codecov.yml', '.coveragerc',
+  'Cargo.toml', 'go.mod', 'tsconfig.json', 'babel.config', '.babelrc',
 ];
-const HARNESS_DIRS = ['.github/workflows/', '.gitlab-ci', '.circleci/', '.whatran/'];
+const HARNESS_DIRS = [
+  '.github/workflows/', '.gitlab-ci', '.circleci/', '.whatran/', '.cargo/',
+];
 
 export function isHarnessFile(f) {
   const base = f.split('/').pop() ?? '';
@@ -182,15 +230,26 @@ const FOCUS_PATTERNS = [
   { re: /^\s*(?:await\s+)?(?:fdescribe|fit)\s*\(/, label: 'fdescribe/fit' },
 ];
 
+// The same mechanism in other languages: one statement at module scope that
+// stops the whole file running while the suite still reports green.
+const PY_FOCUS_PATTERNS = [
+  { re: /^\s*pytestmark\s*=\s*(?:\[[^\]]*)?pytest\s*\.\s*mark\s*\.\s*(skip|xfail)\b/, label: 'module-level pytestmark skip' },
+  { re: /^\s*pytest\s*\.\s*skip\s*\(.*allow_module_level\s*=\s*True/, label: 'pytest.skip(allow_module_level=True)' },
+];
+
 export function focusLocks(root, changed) {
   const hits = [];
   for (const rel of changed) {
-    if (!/\.(test|spec)\.[cm]?[jt]sx?$/.test(rel) && !/(^|\/)(__tests__|tests?)\//.test(rel)) continue;
-    if (!/\.[cm]?[jt]sx?$/.test(rel)) continue;
+    const inTestDir = /(^|\/)(__tests__|tests?)\//.test(rel);
+    const isJs = /\.[cm]?[jt]sx?$/.test(rel)
+      && (/\.(test|spec)\.[cm]?[jt]sx?$/.test(rel) || inTestDir);
+    const isPy = /\.py$/.test(rel) && (/(^|\/)test_[^/]*\.py$|_test\.py$/.test(rel) || inTestDir);
+    if (!isJs && !isPy) continue;
     let src;
     try { src = fs.readFileSync(path.join(root, rel), 'utf8'); } catch { continue; }
-    for (const line of stripNonCode(src).split(/\r?\n/)) {
-      const found = FOCUS_PATTERNS.find((p) => p.re.test(line));
+    const patterns = isPy ? PY_FOCUS_PATTERNS : FOCUS_PATTERNS;
+    for (const line of stripNonCode(src, isPy ? 'py' : 'js').split(/\r?\n/)) {
+      const found = patterns.find((p) => p.re.test(line));
       if (found) { hits.push(`${rel}, ${found.label}`); break; }
     }
   }
@@ -198,9 +257,11 @@ export function focusLocks(root, changed) {
   return [{
     level: MISSING,
     code: 'focus-lock',
-    title: 'A focused test is disabling the rest of its file',
-    detail: 'Under Jest, and under Vitest outside CI, every other test in these files silently '
-      + 'stops running while the suite still reports green. Almost always left behind by accident.',
+    title: plural(hits.length, 'file has a marker disabling the rest of it',
+      'files have a marker disabling the rest of them'),
+    detail: 'A focused test under Jest, or under Vitest outside CI, silently stops every other '
+      + 'test in its file from running while the suite still reports green. A module-level pytest '
+      + 'skip does the same thing. Almost always left behind by accident.',
     evidence: hits,
   }];
 }
@@ -249,6 +310,13 @@ export function isBlocking(findings) {
 
 function plural(n, one, many) {
   return `${n} ${n === 1 ? one : many}`;
+}
+
+// Test ids are `<file> > <scope>::<name>`, so the file is everything before the
+// first separator. Returns '' for a runner whose ids are not file-scoped.
+function fileOfId(id) {
+  const scope = id.split('::')[0] ?? '';
+  return scope.split(' > ')[0].trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -306,8 +374,13 @@ export function assertionFreeTests(bare) {
 // ---------------------------------------------------------------------------
 
 // `mod::test_x[v0]` -> `mod::test_x`;  `pkg::TestF/sub#01` -> `pkg::TestF/sub`
+//
+// The `#NN` suffix is how Go de-duplicates repeated SUBTEST names, so stripping
+// it from any id at all folded unrelated top-level tests into invented
+// families. It only means that after a `/`.
 function familyOf(id) {
-  return id.replace(/\[[^\]]*\]$/, '').replace(/#\d+$/, '');
+  const f = id.replace(/\[[^\]]*\]$/, '');
+  return f.includes('/') ? f.replace(/#\d+$/, '') : f;
 }
 
 function countByFamily(ids) {
@@ -332,9 +405,58 @@ export function unverifiableIds(base, head) {
 
   const ids = new Set();
   for (const id of [...base.keys(), ...head.keys()]) {
-    if (shifted.has(familyOf(id))) ids.add(id);
+    const fam = familyOf(id);
+    // A plain id is not a member of any family, it IS its own name. Without
+    // this guard, naming a parametrised family `test_bug` alongside a plain
+    // `test_bug` swept the plain one into the excluded set, so deleting a
+    // failing test could be laundered by adding a parametrised namesake.
+    if (fam === id) continue;
+    if (shifted.has(fam)) ids.add(id);
   }
   return { ids, families: [...shifted] };
+}
+
+// Renumbering means we cannot say WHICH case stopped failing, but we can still
+// count. If a family had failing members before, has strictly fewer now, and
+// did not grow, then the coverage of a failure is gone however the ids moved.
+//
+// This is the backstop for the exclusion above: on its own, excluding a shifted
+// family turns a false green into silence, and silence is what this tool exists
+// not to produce. Gating on "did not grow" is what keeps it quiet when someone
+// legitimately adds a case.
+export function familyLostFailures(base, head) {
+  const count = (map) => {
+    const size = new Map();
+    const failed = new Map();
+    for (const [id, outcome] of map) {
+      const fam = familyOf(id);
+      if (fam === id) continue;
+      size.set(fam, (size.get(fam) ?? 0) + 1);
+      if (outcome === 'failed') failed.set(fam, (failed.get(fam) ?? 0) + 1);
+    }
+    return { size, failed };
+  };
+  const b = count(base);
+  const h = count(head);
+  const hits = [];
+  for (const [fam, wasFailing] of b.failed) {
+    if (!wasFailing) continue;
+    const nowFailing = h.failed.get(fam) ?? 0;
+    const grew = (h.size.get(fam) ?? 0) > (b.size.get(fam) ?? 0);
+    if (grew || nowFailing >= wasFailing) continue;
+    hits.push(`${fam} (${wasFailing} failing before, ${nowFailing} now)`);
+  }
+  if (!hits.length) return [];
+  return [{
+    level: MISSING,
+    code: 'family-lost-failures',
+    title: plural(hits.length, 'parametrised test lost failing cases',
+      'parametrised tests lost failing cases'),
+    detail: 'These families had failing cases before the change and have fewer now, without '
+      + 'growing. Adding or removing a case renumbers the others, so which one cannot be named, '
+      + 'but a failure that was being caught is no longer being caught.',
+    evidence: hits,
+  }];
 }
 
 export function identityChanged(families) {

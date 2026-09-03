@@ -41,7 +41,12 @@ export function runSuite(runner, cwd, { timeoutMs = 15 * 60 * 1000, env = {} } =
 
   let parsed;
   try {
-    parsed = runner.parse(outFile, stdout, { root: cwd });
+    // Reporters print the path they actually opened. On macOS /tmp is a symlink
+    // to /private/tmp, and a Windows junction does the same, so the reported
+    // path and `cwd` can name the same directory through different strings and
+    // relativise then falls back to an absolute, machine-specific id. Resolving
+    // here keeps parse.js a pure text-to-Map function.
+    parsed = runner.parse(outFile, stdout, { root: realpath(cwd) });
   } catch (err) {
     cleanup();
     return fail(`could not parse ${runner.label} output: ${err.message}`, res.status);
@@ -76,15 +81,49 @@ export function runSuite(runner, cwd, { timeoutMs = 15 * 60 * 1000, env = {} } =
       res.status,
     );
   }
+  // Started and never reported: a panic, a timeout, a killed process. The ids
+  // are simply absent, which is indistinguishable from deletion.
+  if (parsed.incomplete?.length) {
+    return fail(
+      `${parsed.incomplete.length} test${parsed.incomplete.length === 1 ? '' : 's'} started but `
+      + `never reported an outcome, so the run was interrupted rather than completed: `
+      + parsed.incomplete.slice(0, 3).join(', '),
+      res.status,
+    );
+  }
+  // A document the parser could not read the way it expects. Nothing built from
+  // it can be trusted, and the alternative to saying so is a confident
+  // comparison between two sets of ids that do not mean what they say.
+  if (parsed.malformed) {
+    return fail(
+      `${parsed.malformed} element${parsed.malformed === 1 ? '' : 's'} in the ${runner.label} report `
+      + 'could not be read, so the results are not trustworthy',
+      res.status,
+    );
+  }
 
-  // The runner's own count against ours. If we built fewer distinct ids than it
-  // says it ran, two tests share an id, and every comparison downstream is
+  // Records consumed against distinct ids produced. More records than ids means
+  // two tests collided onto one name and every comparison downstream is
   // unsound. Silently losing tests is worse than any false positive, because
   // nobody argues with it.
-  if (Number.isFinite(parsed.declared) && parsed.declared > outcomes.size) {
+  //
+  // This counts what the parser itself saw, rather than the reporter's own
+  // `tests=` total: that total is unreliable in nested-suite documents, which
+  // are exactly the documents where collisions happen, so the guard used to be
+  // unreachable in the only cases that mattered.
+  if (Number.isFinite(parsed.seen) && parsed.seen > outcomes.size) {
     return fail(
-      `${runner.label} reported ${parsed.declared} tests but only ${outcomes.size} have distinct `
+      `${runner.label} reported ${parsed.seen} tests but only ${outcomes.size} have distinct `
       + 'identities, some share a name, so before-and-after cannot be compared reliably',
+      res.status,
+    );
+  }
+  // The reporter's own total, kept as a separate and softer signal: it catches
+  // records that never reached us at all rather than records that collided.
+  if (Number.isFinite(parsed.declared) && Number.isFinite(parsed.seen) && parsed.declared > parsed.seen) {
+    return fail(
+      `${runner.label} says it ran ${parsed.declared} tests but only ${parsed.seen} appear in its `
+      + 'report, so some results were lost before whatran could read them',
       res.status,
     );
   }
@@ -94,6 +133,10 @@ export function runSuite(runner, cwd, { timeoutMs = 15 * 60 * 1000, env = {} } =
   function fail(reason, exitCode) {
     return { ok: false, outcomes: new Map(), exitCode: exitCode ?? null, stdout, stderr, reason };
   }
+}
+
+function realpath(p) {
+  try { return fs.realpathSync(p); } catch { return p; }
 }
 
 // Variables that make a nested test run misbehave. NODE_TEST_CONTEXT is the
