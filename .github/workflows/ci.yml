@@ -4,6 +4,9 @@ jobs:
   test:
     runs-on: ${{ matrix.os }}
     strategy:
+      # A platform-specific failure must not cancel every other platform; that
+      # hides how wide the problem is at exactly the moment you need to know.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         node: [22, 24, 26]
@@ -28,3 +31,29 @@ jobs:
       # pull request for renaming a describe block is how a check gets deleted.
       # This gate is for coverage that went missing.
       - run: node bin/whatran.js check --base ${{ github.event.pull_request.base.sha }}
+
+  # TEMPORARY: dump what node:test's JUnit reporter emits for a file that fails
+  # to load, on the one platform where the parser disagrees.
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: |
+          mkdir -p probe/test
+          printf '{"name":"p","type":"module"}
+' > probe/package.json
+          cat > probe/test/sum.test.js <<'EOT'
+          import { test } from 'node:test';
+          import assert from 'node:assert';
+          import { sum } from '../sum.js';
+          test('sum adds', () => { assert.strictEqual(sum(2,3), 5); });
+          EOT
+          cd probe
+          node --version
+          node --test --test-reporter=junit --test-reporter-destination=out.xml || true
+          echo '===== RAW XML ====='
+          cat out.xml
+          echo '===== PARSED ====='
+          node -e "import('../src/parse.js').then(m=>{const r=m.parseJUnitXml(require('fs').readFileSync('out.xml','utf8'),{root:process.cwd()});console.log('seen',r.seen,'ids',r.outcomes.size,'unloadable',JSON.stringify(r.unloadable));for(const [k,v] of r.outcomes)console.log(' id',JSON.stringify(k),v);})"
