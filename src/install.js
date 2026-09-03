@@ -66,11 +66,30 @@ const TARGETS = [
       const cmd = hookCommand(root).command;
       addHook(doc.hooks, 'SessionStart', {
         [OWNED]: true,
-        hooks: [{ type: 'command', command: cmd + ' --event SessionStart', timeout: 900 }],
+        hooks: [{
+          type: 'command',
+          command: cmd + ' --event SessionStart',
+          // Recording the baseline must not delay the first prompt either.
+          async: true,
+          timeout: 900,
+          statusMessage: 'whatran is recording what your suite runs',
+        }],
       });
       addHook(doc.hooks, 'Stop', {
         [OWNED]: true,
-        hooks: [{ type: 'command', command: cmd, timeout: 900 }],
+        hooks: [{
+          type: 'command',
+          command: cmd,
+          // The whole point. A test suite takes minutes; blocking the turn on
+          // it makes the tool unusable on any real repository. asyncRewake
+          // runs it in the background, ends the turn immediately, and wakes
+          // the agent only if the check exits 2, showing it our stderr.
+          asyncRewake: true,
+          // Claude Code does not enforce `timeout` on a background hook, so
+          // this is advisory. The real ceiling is whatran's own, in run.js.
+          timeout: 900,
+          statusMessage: 'whatran is checking what your suite ran',
+        }],
       });
       return doc;
     },

@@ -1,7 +1,7 @@
 import { resolveProject, otherProjects } from './project.js';
 import { runSuite, summarise } from './run.js';
 import { loadBaseline, captureFromRef, saveBaseline, recordUnstable } from './baseline.js';
-import { changedFiles, head as gitHead, mergeBase, listFiles, listFilesAtRef, fileAtRef } from './git.js';
+import { changedFiles, head as gitHead, mergeBase, listFiles, listFilesAtRef, fileAtRef, treeFingerprint } from './git.js';
 import {
   outcomeTransitions, harnessTampering, focusLocks, suiteShrank, verdict,
   collectHarnessState, isHarnessFile, assertionFreeTests, unverifiableIds, identityChanged, uncheckedProjects,
@@ -9,7 +9,7 @@ import {
 } from './checks.js';
 import { newTestsWithoutAssertions } from './oracle.js';
 import { confirmFindings, dropKnownUnstable } from './confirm.js';
-import { relevantChanges } from './relevance.js';
+import { relevantChanges, isRelevantFile } from './relevance.js';
 import { createHash } from 'node:crypto';
 import fsMod from 'node:fs';
 import pathMod from 'node:path';
@@ -30,6 +30,12 @@ export function projectDirFor(root, explicit, cwd = root) {
 // so the CLI, the JSON output and the agent hook all agree on the facts.
 export function whatran(root, opts = {}) {
   const started = Date.now();
+  // Claude Code does not enforce `timeout` on a background hook, so this is the
+  // only ceiling that exists. It covers the whole operation, not one suite run:
+  // a check can involve a baseline run, a main run and a confirmation run.
+  const budgetMs = opts.budgetMs ?? 15 * 60 * 1000;
+  const remaining = () => Math.max(0, budgetMs - (Date.now() - started));
+
   const { runner, dir: projectDir } = resolveProject(opts.cwd ?? root, root, opts.runner);
   if (!runner) {
     return inconclusive('no supported test runner detected in this repository', { root });
@@ -81,10 +87,18 @@ export function whatran(root, opts = {}) {
   }
 
   // --- run the suite as it stands now --------------------------------------
-  const now = runSuite(runner, projectDir, { timeoutMs: opts.timeoutMs });
+  // A suite can take minutes, and in the background it can outlive the state it
+  // measured: the agent keeps working, or the person edits a file. A finding
+  // reported against code that no longer exists is a false accusation, and a
+  // confusing one, because the evidence is already gone by the time it is read.
+  const treeBefore = treeFingerprint(root, isRelevantFile);
+
+  const now = runSuite(runner, projectDir, { timeoutMs: Math.min(opts.timeoutMs ?? budgetMs, remaining()) });
   if (!now.ok) {
     return inconclusive(now.reason, { runner: runner.label });
   }
+
+  if (treeFingerprint(root, isRelevantFile) !== treeBefore) return movedOn();
 
   // A suite that failed to collect looks exactly like a suite whose tests were
   // deleted: the ids simply aren't there. Accusing someone of removing coverage
@@ -147,7 +161,9 @@ export function whatran(root, opts = {}) {
   // Then, only if an accusation survived, get a second opinion.
   let confirmed = false;
   let unstable = knownUnstable;
-  if (!opts.noConfirm) {
+  // A second run needs room to finish. Starting one with no budget left would
+  // report a half-measured result as if it were confirmed.
+  if (!opts.noConfirm && remaining() > 30 * 1000) {
     const c = confirmFindings({
       findings: outcomeFindings,
       base,
@@ -164,6 +180,10 @@ export function whatran(root, opts = {}) {
       recordUnstable(projectDir, unstable);
     }
   }
+
+  // The confirmation run above can itself outlive the tree, so check once more
+  // before committing to a verdict.
+  if (treeFingerprint(root, isRelevantFile) !== treeBefore) return movedOn();
 
   const findings = [
     ...outcomeFindings,
@@ -196,6 +216,14 @@ export function whatran(root, opts = {}) {
     confirmed,
     elapsedMs: Date.now() - started,
   };
+
+  function movedOn() {
+    return inconclusive(
+      'the working tree changed while the suite was running, so this result describes code '
+      + 'that has already moved on',
+      { runner: runner.label },
+    );
+  }
 
   function countMissing(baseMap, headMap) {
     let n = 0;

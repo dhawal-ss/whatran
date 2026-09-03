@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
+import crypto from 'node:crypto';
 
 export function git(root, args, opts = {}) {
   try {
@@ -82,4 +83,37 @@ export function listFiles(root) {
 export function listFilesAtRef(root, ref) {
   const out = git(root, ['ls-tree', '-r', '--name-only', ref], { tolerant: true });
   return out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+}
+
+// A cheap fingerprint of "what the working tree looked like at this moment".
+//
+// A check that runs in the background can outlive the state it measured: the
+// agent keeps working, or the person edits a file. Reporting a finding against
+// code that no longer exists is a false accusation, and an especially confusing
+// one because the evidence has already vanished by the time it is read.
+//
+// HEAD plus the porcelain status catches adds, deletes and staging changes;
+// size and mtime of each dirty file catches edits to content without paying to
+// hash it. Cheap enough to take twice around every run.
+// `matters` decides which paths count. It must be supplied, because running a
+// test suite writes files: __pycache__, coverage data, build caches. Without a
+// filter the fingerprint changed on the tool's own side effects and every check
+// reported that the tree had moved on, which silenced the whole tool.
+export function treeFingerprint(root, matters = () => true) {
+  const parts = [head(root) ?? 'no-head'];
+  const status = git(root, ['status', '--porcelain'], { tolerant: true });
+  for (const line of status.split(/\r?\n/)) {
+    // Porcelain v1 is two status characters then the path, but the separator is
+    // one space for some states and two for others. Slicing a fixed offset ate
+    // the first character of every path.
+    const flags = line.slice(0, 2);
+    const rel = line.slice(2).trim().split(path.win32.sep).join('/');
+    if (!rel || !matters(rel)) continue;
+    parts.push(flags.trim() + ' ' + rel);
+    try {
+      const st = fs.statSync(path.join(root, rel));
+      parts.push(`${rel}:${st.size}:${Math.round(st.mtimeMs)}`);
+    } catch { parts.push(`${rel}:gone`); }
+  }
+  return crypto.createHash('sha1').update(parts.join('\n')).digest('hex');
 }

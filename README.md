@@ -189,9 +189,23 @@ Coverage disappearing by accident is not rare at all, and nothing else tells you
 
 ## Speed
 
-The agent hook runs on every turn, so it refuses to run your suite when nothing could possibly
-have changed a test outcome: documentation, images, build artefacts, agent config, or no edits
-at all.
+**The check runs in the background.** Your turn ends immediately; the suite runs behind it, and
+your agent is only interrupted if something is actually wrong. On a repo whose tests take four
+minutes, that is the difference between a tool you keep and a tool you uninstall on day one.
+
+Because a background check is not supervised by the harness, whatran supervises itself:
+
+- **One at a time.** A second check stands down while the first is running, so a few quick turns
+  cannot start several full suite runs at once.
+- **A real time limit.** Claude Code does not enforce a timeout on a background hook, so whatran
+  enforces its own across the whole operation, not just one suite run.
+- **It stops repeating itself.** If the same finding comes back three times unchanged, whatran
+  goes quiet: at that point the agent cannot act on it and you need to see it instead.
+- **It discards stale results.** If the working tree moves while the suite is running, the result
+  describes code that no longer exists, so it is thrown away rather than reported.
+
+It also refuses to run your suite at all when nothing could possibly have changed a test outcome:
+documentation, images, build artefacts, agent config, or no edits at all.
 
 On a repo whose suite takes 3.5s that is the difference between **255ms** and **3540ms** per
 turn. On a repo whose suite takes four minutes it is the difference between the tool being

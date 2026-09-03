@@ -5,6 +5,7 @@ import { loadBaseline } from './baseline.js';
 import { projectDirFor } from './whatran.js';
 import { head as gitHead } from './git.js';
 import { couldAffectTests } from './relevance.js';
+import { shouldWake, clearWake, acquireLock } from './wake.js';
 
 const STALE_MS = 8 * 60 * 60 * 1000;
 
@@ -35,7 +36,19 @@ export async function runHook(root, flags = {}) {
   const recorded = loadBaseline(projectDirFor(root, null, process.cwd()));
   if (!couldAffectTests(root, recorded?.ref ?? null)) return 0;
 
-  const result = whatran(root, { cwd: process.cwd(), timeoutMs: flags.timeout ? flags.timeout * 1000 : undefined });
+  // Background hooks can overlap with themselves. Without this, a few quick
+  // turns on a repo with a slow suite would start several full runs at once.
+  const release = acquireLock(projectDirFor(root, null, process.cwd()));
+  if (!release) {
+    if (process.env.WHATRAN_DEBUG) process.stderr.write('whatran: another check is already running\n');
+    return 0;
+  }
+  let result;
+  try {
+    result = whatran(root, { cwd: process.cwd(), timeoutMs: flags.timeout ? flags.timeout * 1000 : undefined });
+  } finally {
+    release();
+  }
 
   // Inconclusive must never block. If we cannot obtain trustworthy evidence,
   // the honest answer is silence, not an accusation.
@@ -44,13 +57,35 @@ export async function runHook(root, flags = {}) {
     return 0;
   }
 
+  const projectDir = projectDirFor(root, null, process.cwd());
+
   // Only interrupt for things that would otherwise go unnoticed. A test that
   // now fails is already red in the output; a test that stopped running is not.
-  if (!isBlocking(result.findings)) return 0;
+  if (!isBlocking(result.findings)) {
+    clearWake(projectDir);
+    return 0;
+  }
+
+  // Never say the same thing forever. Claude Code gives up after a run of
+  // consecutive synchronous Stop blocks, but whether that counter covers a
+  // background rewake is undocumented, and a hook that fires every turn with an
+  // instruction the agent cannot satisfy is worse than no hook at all. So
+  // whatran keeps its own count rather than relying on someone else's.
+  const wake = shouldWake(projectDir, result.findings.filter((f) => FAILING_LEVELS.has(f.level)));
+  if (!wake.allowed) {
+    if (process.env.WHATRAN_DEBUG) {
+      process.stderr.write(`whatran: same findings ${wake.attempt} times, staying quiet\n`);
+    }
+    return 0;
+  }
 
   // Deciding to interrupt is narrow, but once we are interrupting, report
   // everything that is wrong, the agent is listening and it costs nothing.
-  const message = renderAgentFeedback(result.findings, FAILING_LEVELS);
+  const message = renderAgentFeedback(result.findings, FAILING_LEVELS)
+    + (wake.attempt > 1
+      ? `\n\nThis is attempt ${wake.attempt} of ${wake.limit}. Repeating the same approach will `
+        + 'not clear it: this reads what the suite actually ran, not how the change was made.'
+      : '');
 
   // Cursor cannot be blocked and never reads stderr: its only documented
   // channel is a followup_message on stdout, which it submits as the next
