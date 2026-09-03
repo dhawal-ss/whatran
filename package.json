@@ -1,6 +1,6 @@
 {
   "name": "whatran",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Tells you what your test suite actually ran. Catches the test that quietly stopped running - for Claude Code, Codex, Cursor and CI.",
   "keywords": [
     "ai-agents",
