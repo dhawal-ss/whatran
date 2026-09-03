@@ -164,3 +164,35 @@ describe('regressions', () => {
     assert.strictEqual(isBlocking(f), false);
   });
 });
+
+// A file that lost an id but did not get smaller was reorganised, not gutted.
+// Renaming a describe block changes every id inside it, and treating that as
+// lost coverage would interrupt the agent on one of the most ordinary edits
+// there is. A file that actually shrank is the case worth interrupting for.
+describe('telling a rename from a deletion', () => {
+  const m = (o) => new Map(Object.entries(o));
+
+  test('a renamed describe in a file that did not shrink is only a notice', () => {
+    const base = m({ 'a.test.js > old::one': 'passed', 'a.test.js > old::two': 'passed' });
+    const head = m({ 'a.test.js > new::one': 'passed', 'a.test.js > new::two': 'passed' });
+    const codes = outcomeTransitions(base, head, ['a.test.js']).map((f) => f.code);
+    assert.ok(!codes.includes('test-stopped-running'), codes.join(','));
+    assert.ok(codes.includes('test-vanished'), codes.join(','));
+  });
+
+  test('a passing test deleted from a file that shrank is reported', () => {
+    const base = m({ 'a.test.js::one': 'passed', 'a.test.js::two': 'passed' });
+    const head = m({ 'a.test.js::one': 'passed' });
+    const codes = outcomeTransitions(base, head, ['a.test.js']).map((f) => f.code);
+    assert.ok(codes.includes('test-stopped-running'), codes.join(','));
+  });
+
+  // Only files this change actually touched. A test that stopped being
+  // collected somewhere nobody edited is a different question.
+  test('an untouched file is only a notice however much it shrank', () => {
+    const base = m({ 'a.test.js::one': 'passed', 'a.test.js::two': 'passed' });
+    const head = m({ 'a.test.js::one': 'passed' });
+    const codes = outcomeTransitions(base, head, ['other.js']).map((f) => f.code);
+    assert.ok(!codes.includes('test-stopped-running'), codes.join(','));
+  });
+});

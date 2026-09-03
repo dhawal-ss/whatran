@@ -44,6 +44,7 @@ $ whatran
             The suite reports green because they no longer report anything.
             · test_auth::test_expired_token_rejected
 
+  vs snapshot 2026-01-14T09:12:04.881Z, 6 minutes old, confirmed by a second run
   pytest · 3 tests, 2 passed, 0 failed, 1 skipped · 1.2s
 ```
 
@@ -59,15 +60,33 @@ and told to go back and fix the code properly.
 
 No account. No cloud. No API key. No AI anywhere in the checking. Nothing to configure.
 
+You do not strictly need `init` either. Bare `whatran` records its own baseline the first time
+you run it, so there is no command you have to remember to run first.
+
+## In your agent
+
+Once installed, `/whatran` is available as a slash command in Claude Code. It runs the check and
+hands the result to the agent with instructions for acting on it, so you can ask for a
+verification at any point rather than waiting for the end of a turn.
+
+```console
+> /whatran
+```
+
+The Stop hook does the same thing automatically at the end of every turn that touched something
+capable of changing a test outcome.
+
 ## What it catches
 
 | | | |
 |---|---|---|
 | **A failing test that stopped failing the honest way** | It is now skipped, deleted, or quietly excluded. The failing test *is* the description of the bug, so anything other than failed becoming passed means the goalposts moved. | `MISSING` |
+| **A passing test that stopped running in a file this change shrank** | Not a rename: the file has fewer tests in it than it did. | `MISSING` |
+| **A parametrised family that lost failing cases** | Renumbering hides which case, but a failure that was being caught no longer is. | `MISSING` |
+| **A stray `.only`, `fdescribe`, or module-level `pytestmark = skip`** | Silently stops every other test in the file from running, while the suite still reports green. | `MISSING` |
 | **A passing test that now fails** | Your change broke something that worked. | `BROKE` |
 | **A new test that checks nothing** | It runs, it proves nothing, and it makes the suite look bigger than it is. | `NOTICE` |
-| **A change to the test config itself** | One new `conftest.py` can force an entire suite to report as passed without touching a line of source. | `NOTICE` |
-| **A stray `.only` or `fdescribe`** | Silently stops every other test in the file from running, while the suite still reports green. | `MISSING` |
+| **A change to the test config itself** | One new `conftest.py`, or one line in `pyproject.toml`, can force an entire suite to report as passed without touching a line of source. | `NOTICE` |
 | **A suite that collects fewer tests than before** | A backstop for everything the specific checks miss. | `NOTICE` |
 
 Only `MISSING` interrupts your agent. A broken test **shouts**: it is red on screen, the agent
@@ -78,10 +97,11 @@ line in a diff. whatran exists for the second kind, so it does not nag you about
 
 **It will not slow you down.** The check runs in the background. Your turn ends straight away and
 the suite runs behind it. If nothing that could possibly affect a test was edited, it does not run
-your suite at all.
+your suite at all. (In a non-interactive run, `claude -p` or CI, hooks are synchronous, so there
+the check does take as long as your suite.)
 
 **It will not accuse you when it is not sure.** A broken import, a missing dependency, a suite that
-would not start: it says so and gets out of the way.
+would not start, a report it could not read: it says so and gets out of the way.
 
 ```console
   INCONCLUSIVE  pytest exited 2, which means the suite did not run to completion
@@ -89,43 +109,70 @@ would not start: it says so and gets out of the way.
 ```
 
 **It will not blame your change for a flaky test.** Before making an accusation it runs the suite
-again and reports only what happens twice. And if nothing relevant was edited at all, an outcome
-that moved is flakiness by definition. Tests caught doing this are remembered and left alone.
+again and reports only what happens twice. Tests caught doing this are remembered and left alone
+for that one kind of finding, and every suppression is reported rather than silently applied.
+
+**It will not quietly redefine "normal".** A baseline is never recorded from a working tree that
+already has uncommitted changes in it, because that would write whatever the agent just did into
+the definition of correct. If your tree is dirty and there is no baseline, it takes one from
+`HEAD` in a scratch worktree and measures your changes against that.
 
 **It will not repeat itself forever.** Say the same thing three times with nothing changing and it
 goes quiet, because at that point your agent cannot act on it and you need to see it instead.
 
-**It will not touch your files.** It does not edit your `.gitignore`, and it does not write config
-for a tool you are not using.
+**It will not touch your files.** It does not edit your `.gitignore`, it does not write config for
+a tool you are not using, and it never removes an entry from your agent config that it did not
+write itself.
 
 ## Supported runners
 
-Found automatically, using each framework's own built in reporter. There is nothing extra to
-install.
+Found automatically, using each framework's own built in reporter.
 
 | | Runner | |
 |---|---|---|
 | Python | pytest | ✅ |
-| JavaScript | Vitest, Jest, `node:test` | ✅ |
+| JavaScript | Vitest, Jest, Mocha, `node:test` | ✅ |
 | Go | `go test` | ✅ |
-| Rust | `cargo nextest` | ✅ |
+| Rust | `cargo nextest` | ✅ * |
+
+\* Everything except `cargo nextest` uses a reporter that ships with the framework, so there is
+nothing extra to install. `cargo nextest` is a separate binary (`cargo install cargo-nextest`);
+plain `cargo test` has no stable machine-readable output to read.
 
 If your project lives in a subfolder, run it from there. It looks where you are, not just at the
-top of the repository.
+top of the repository. In a monorepo it checks one project and says plainly which others it did
+not look at.
 
 ## Commands
 
 ```bash
-whatran                    # check the working tree against what you remembered
+whatran                    # check the working tree; records a baseline first if there is none
+whatran status             # what is set up here, without running anything
 whatran snapshot           # remember what the suite runs right now
 whatran accept             # accept the current state as the new normal
 whatran check --base main  # compare against a git branch instead
 whatran detect             # show which test runner it found
-whatran uninstall          # remove the hooks
+whatran uninstall          # remove the hooks and the /whatran command
 ```
 
-Exit codes: `0` nothing to report, `1` something is missing or broke, `2` whatran itself could not
-run.
+Exit codes: `0` nothing to report, **or no claim could be made**; `1` something is missing or
+broke; `2` whatran itself could not run; `3` inconclusive, with `--strict`.
+
+That first one matters in CI. A run that could not obtain evidence exits `0` by default, so if you
+want a pipeline to fail rather than merge on a check that never happened, pass `--strict`.
+
+**`whatran status`** answers "am I actually covered?" without running anything:
+
+```console
+$ whatran status
+
+  Runner    pytest
+  Project   .
+  Baseline  6 minutes old, 47 tests (44 passed, 2 failed, 1 skipped)
+            recorded at a2c86f7a, which is still HEAD
+  Tree      has uncommitted changes
+  Hooks     Claude Code
+```
 
 **`whatran accept`** is the escape hatch. Deleted a test on purpose? Accept it, and whatran tells
 you exactly what it agreed to before it stops mentioning it:
@@ -133,7 +180,7 @@ you exactly what it agreed to before it stops mentioning it:
 ```console
 $ whatran accept
 
-  Accepted: pytest
+  Accepted, pytest
   This is now the expected state:
     · 1 failing test disappeared from the suite
         test_auth::test_expired_token_rejected
@@ -143,32 +190,54 @@ $ whatran accept
 ## In CI
 
 ```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0        # whatran needs the base commit, not just the tip
 - run: npx whatran check --base ${{ github.event.pull_request.base.sha }}
 ```
 
-No snapshot needed. It builds one from the branch you are merging into.
+No snapshot needed. It builds one from the branch you are merging into, by running that commit's
+suite in a scratch worktree.
+
+`fetch-depth: 0` is not optional. The default checkout is shallow, so there is no common ancestor
+to compare against and every run is inconclusive: green pipeline, nothing verified.
+
+`--base` mode refuses rather than guesses in two cases where a worktree would silently give the
+wrong answer: a Python project installed with `pip install -e .`, and any JavaScript workspace
+whose `node_modules` links back into the repository. In both, the "before" run would import the
+current source and every difference would vanish. Use `whatran snapshot` in those projects.
 
 ## Works with
 
 | | |
 |---|---|
-| **Claude Code** | Records the baseline when a session starts, and stops the turn if coverage goes missing. Runs in the background, so it never makes you wait. |
-| **Codex CLI** | Same, via `.codex/hooks.json`. |
+| **Claude Code** | Records the baseline when a session starts, stops the turn if coverage goes missing, and installs `/whatran`. Runs in the background, so it never makes you wait. |
+| **Codex CLI** | Same, via `.codex/hooks.json`. Codex will not run a new hook until you trust it: run `/hooks` in Codex and approve the whatran entry. `init` tells you this. |
 | **Cursor** | Sends the agent a follow up message, since Cursor cannot be stopped mid turn. |
 
 When it stops your agent, this is what the agent is told. Each problem gets advice that fits it,
 because "put the tests back" is the wrong instruction for a regression:
 
 ```
-whatran compared what your test suite ran before this change with what it runs now.
+STOP. whatran compared what your test suite ran BEFORE this change with what it runs now, and
+coverage went missing. The suite being green does not settle this: these tests are green because
+they are no longer reporting.
 
-1 failing test was skipped instead of fixed:
+1 failing test disappeared from the suite:
     test_auth::test_expired_token_rejected
-  -> Restore these tests and make them pass by fixing the underlying problem.
-     Do not skip them. If one is genuinely obsolete, say so and explain why.
+  -> Put these tests back and make them pass by fixing the underlying problem. If one is
+     genuinely obsolete, say so explicitly and explain why rather than deleting it.
 
-Do not modify the test harness to work around any of this.
+Then verify it: re-run the test suite yourself and confirm by name that each test listed above now
+runs and passes. Do not report back until you have seen that output.
+Do not modify the test harness, the test configuration, or whatran itself to work around any of
+this. If you genuinely believe a test above should no longer exist, leave it in place, stop, and
+explain your reasoning to the user, so a person can decide.
 ```
+
+Note what it does not say: it never mentions `whatran accept`. That command would clear the
+finding without fixing anything, so it is deliberately kept out of the agent's reach and left as
+your decision.
 
 ## Why it works this way
 
@@ -182,8 +251,22 @@ filter in a config file, a build flag, an import error that quietly drops a whol
 the diff for the word "skip" finds none of those, and fires constantly on
 `skipif(platform == "windows")`, which is perfectly normal.
 
-**It is not really about catching cheaters.** Deliberate test tampering is rare and getting rarer.
-Coverage disappearing by accident is not rare at all, and nothing else tells you when it happens.
+**It is mostly not about catching cheaters.** Coverage disappearing by accident is common: a
+rename that drops a file from collection, a `.only` left behind while debugging, a config change
+with a wider blast radius than intended. Deliberate tampering happens too, and the same check
+catches both, because it never asks about intent.
+
+### Compared with what else is out there
+
+Coverage gates (Codecov patch status, `diff-cover`) tell you which *lines* stopped being executed,
+which is a coarser signal and one that a deleted test improves rather than worsens. Mutation
+testing (Stryker, `mutmut`, `cargo-mutants`) measures whether your tests would catch an injected
+bug, which is more thorough and far too slow to run on every turn. Lint rules for `.only` and
+`skip` markers catch the syntactic cases and miss everything that happens in config.
+
+whatran occupies the gap between them: a per-test outcome diff, fast enough for every turn, that
+notices a specific named test going from failing to not-running. That is the one signal none of
+the others reports.
 
 ## Contributing
 
@@ -193,7 +276,9 @@ cd whatran
 npm test
 ```
 
-131 tests, no dependencies, no build step.
+No dependencies, no build step. The suite runs on `node --test` and includes checked-in real
+reporter output as fixtures, because hand-written XML is exactly how a parser bug survives a
+green suite.
 
 ## Licence
 

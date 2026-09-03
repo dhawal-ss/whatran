@@ -5,7 +5,11 @@ import { addWorktree, removeWorktree, head as gitHead } from './git.js';
 
 export const DIR = '.whatran';
 export const FILE = 'baseline.json';
-const VERSION = 3; // 2 added harness hashes; 3 adds the unstable-test ledger
+// 2 added harness hashes; 3 added the unstable-test ledger; 4 is a forced
+// invalidation, because the JUnit parser was rewritten and the test ids it
+// produces are no longer the same strings. Comparing new ids against old ones
+// would report every test in a nested describe as both removed and added.
+const VERSION = 4;
 
 export function baselinePath(root) {
   return path.join(root, DIR, FILE);
@@ -75,7 +79,7 @@ export function clearBaseline(root) {
 // A worktree does not carry untracked files, so node_modules and .venv are
 // absent. Rather than guess, we link the ones we can and let runSuite report
 // an unusable result honestly if that wasn't enough.
-export function captureFromRef(root, ref, runner, { link = true, projectDir = root } = {}) {
+export function captureFromRef(root, ref, runner, { link = true, projectDir = root, timeoutMs } = {}) {
   if (runner.lang === 'python') {
     const editable = detectEditableInstall(root);
     if (editable) {
@@ -85,6 +89,20 @@ export function captureFromRef(root, ref, runner, { link = true, projectDir = ro
           + 'so a baseline run in a worktree would import the current source rather than the '
           + 'source at that ref, and every difference would silently disappear. Use '
           + '`whatran snapshot` before the change instead of --base.',
+      };
+    }
+  }
+  if (runner.lang === 'js' && link) {
+    const workspace = detectWorkspaceLinks(root);
+    if (workspace) {
+      return {
+        ok: false,
+        reason: `this project's node_modules links back into the repository `
+          + `(node_modules/${workspace} is a symlink to a package in this checkout), which is how `
+          + 'every npm/pnpm/yarn workspace is laid out. Linking it into a worktree would make the '
+          + 'baseline run import the CURRENT source instead of the source at that ref, so every '
+          + 'difference would silently disappear. Use `whatran snapshot` before the change '
+          + 'instead of --base.',
       };
     }
   }
@@ -99,7 +117,7 @@ export function captureFromRef(root, ref, runner, { link = true, projectDir = ro
     // Mirror the project sub-path inside the worktree.
     const rel = path.relative(root, projectDir);
     const runIn = rel && !rel.startsWith('..') ? path.join(dir, rel) : dir;
-    const res = runSuite(runner, runIn);
+    const res = runSuite(runner, runIn, { timeoutMs });
     if (!res.ok) {
       return {
         ok: false,
@@ -160,6 +178,54 @@ export function detectEditableInstall(root) {
   return null;
 }
 
+// The JavaScript equivalent of an editable install. In any workspace layout
+// (npm, pnpm and yarn all do this) node_modules/<pkg> is a symlink to a package
+// inside the repository, so linking node_modules into a base worktree makes the
+// "baseline" run execute HEAD's source. Base and head then come out identical
+// and whatran reports a confident INTACT on a change it never measured, which
+// is exactly the false green detectEditableInstall exists to prevent.
+//
+// Returns the first offending entry's name, or null.
+export function detectWorkspaceLinks(root) {
+  const modules = path.join(root, 'node_modules');
+  const resolvedRoot = path.resolve(root);
+  const insideModules = path.resolve(modules);
+  const scan = (dir, prefix) => {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return null; }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.name.startsWith('@') && e.isDirectory()) {
+        const nested = scan(full, `${prefix}${e.name}/`);
+        if (nested) return nested;
+        continue;
+      }
+      if (!e.isSymbolicLink()) continue;
+      let target;
+      try { target = fs.realpathSync(full); } catch { continue; }
+      if (!isInside(target, resolvedRoot) || isInside(target, insideModules)) continue;
+      return prefix + e.name;
+    }
+    return null;
+  };
+  return scan(modules, '');
+}
+
+function isInside(child, parent) {
+  const rel = path.relative(parent, child);
+  return Boolean(rel) && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+// How long ago the baseline was recorded, in ms, or null if there isn't one.
+// The human ledger never said this, so a baseline recorded before a long
+// refactor looked exactly like one recorded a minute ago.
+export function baselineAge(root) {
+  const doc = loadBaseline(root);
+  if (!doc || doc.stale || !doc.createdAt) return null;
+  const at = Date.parse(doc.createdAt);
+  return Number.isFinite(at) ? Math.max(0, Date.now() - at) : null;
+}
+
 function sitePackages(venvRoot) {
   const out = [];
   const candidates = [path.join(venvRoot, 'Lib', 'site-packages')];
@@ -176,7 +242,9 @@ function sitePackages(venvRoot) {
 // the baseline it is measuring against.
 export function recordUnstable(root, unstable) {
   const doc = loadBaseline(root);
-  if (!doc) return false;
+  // `stale` carries no outcomes, so spreading it produced
+  // "undefined is not iterable" and crashed the whole check.
+  if (!doc || doc.stale) return false;
   const payload = {
     ...doc,
     outcomes: Object.fromEntries(doc.outcomes),

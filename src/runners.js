@@ -7,7 +7,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseJUnitXml, parseJestJson, parseGoTestJson } from './parse.js';
+import { parseJUnitXml, parseJestJson, parseGoTestJson, parseMochaJson } from './parse.js';
 
 const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return ''; } };
 const exists = (root, ...rel) => fs.existsSync(path.join(root, ...rel));
@@ -54,7 +54,6 @@ export const RUNNERS = [
     // Anything above 1 means the suite did not run properly, which is not the same
     // as tests failing and must never be reported as removed coverage.
     structuralExit: (code) => code !== null && code >= 2,
-    testGlobs: [/(^|\/)tests?\//, /(^|\/)test_.*\.py$/, /_test\.py$/, /conftest\.py$/],
   },
   {
     id: 'vitest',
@@ -71,7 +70,6 @@ export const RUNNERS = [
     },
     parse: (outFile, _stdout, ctx) => parseJestJson(read(outFile), ctx),
     outExt: '.json',
-    testGlobs: [/\.(test|spec)\.[jt]sx?$/, /(^|\/)__tests__\//],
   },
   {
     id: 'jest',
@@ -92,7 +90,6 @@ export const RUNNERS = [
     },
     parse: (outFile, _stdout, ctx) => parseJestJson(read(outFile), ctx),
     outExt: '.json',
-    testGlobs: [/\.(test|spec)\.[jt]sx?$/, /(^|\/)__tests__\//],
   },
   {
     id: 'go',
@@ -106,7 +103,6 @@ export const RUNNERS = [
     },
     parse: (_outFile, stdout) => parseGoTestJson(stdout),
     outExt: '.json',
-    testGlobs: [/_test\.go$/],
   },
   {
     id: 'node-test',
@@ -123,7 +119,30 @@ export const RUNNERS = [
     },
     parse: (outFile, _stdout, ctx) => parseJUnitXml(read(outFile), ctx),
     outExt: '.xml',
-    testGlobs: [/\.(test|spec)\.[cm]?js$/, /(^|\/)test\//],
+  },
+  {
+    id: 'mocha',
+    label: 'Mocha',
+    lang: 'js',
+    detect(root) {
+      if (/\bmocha\b/.test(testScript(root))) return CONFIDENCE.DECLARED;
+      if (hasDep(pkgJson(root), 'mocha')) return CONFIDENCE.CONFIGURED;
+      return ['.mocharc.json', '.mocharc.yml', '.mocharc.yaml', '.mocharc.js', '.mocharc.cjs']
+        .some((f) => exists(root, f)) ? CONFIDENCE.CONFIGURED : CONFIDENCE.NONE;
+    },
+    command(outFile, root) {
+      // Mocha's default spec is ./test/*.spec.js only. Projects routinely put
+      // their globs in the npm test script instead, and running bare `mocha`
+      // would then collect a smaller suite than the project actually has. The
+      // baseline and the check run the same command, so this cannot produce a
+      // false accusation, but it would quietly check less than it appears to.
+      return nodeTool(root, 'mocha', [
+        ...mochaArgsFromScript(root),
+        '--reporter', 'json', '--reporter-option', 'output=' + outFile,
+      ]);
+    },
+    parse: (outFile, _stdout, ctx) => parseMochaJson(read(outFile), ctx),
+    outExt: '.json',
   },
   {
     id: 'nextest',
@@ -142,7 +161,6 @@ export const RUNNERS = [
     },
     parse: (outFile, _stdout, ctx) => parseJUnitXml(read(outFile), ctx),
     outExt: '.xml',
-    testGlobs: [/(^|\/)tests?\//, /\.rs$/],
   },
 ];
 
@@ -201,11 +219,34 @@ function localTool(root, pkgName) {
 function nodeTool(root, pkgName, args) {
   const local = localTool(root, pkgName);
   if (local) return { cmd: process.execPath, args: [local, ...args] };
-  return {
-    cmd: process.platform === 'win32' ? 'npx.cmd' : 'npx',
-    args: ['--no-install', pkgName, ...args],
-    shell: process.platform === 'win32',
-  };
+  // With `shell: true`, Node joins the args array with spaces and hands the
+  // result to cmd.exe unquoted, so a temp path containing a space, which every
+  // Windows path under "Local Settings" or a user's full name has, broke the
+  // command apart. Build the line ourselves and quote every part.
+  if (process.platform === 'win32') {
+    const line = ['npx.cmd', '--no-install', pkgName, ...args].map(winQuote).join(' ');
+    return { cmd: line, args: [], shell: true };
+  }
+  return { cmd: 'npx', args: ['--no-install', pkgName, ...args] };
+}
+
+const winQuote = (a) => (/[\s"&|<>^]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a);
+
+// Everything the project's own test script passes to mocha, minus the reporter
+// flags we are about to set ourselves. Best effort by design: an unparseable
+// script simply yields nothing and mocha uses its defaults.
+function mochaArgsFromScript(root) {
+  const script = testScript(root);
+  const at = script.search(/(^|[\s'"])mocha(\s|$)/);
+  if (at === -1) return [];
+  const rest = script.slice(script.indexOf('mocha', at) + 'mocha'.length).trim();
+  if (!rest || rest.includes('&&') || rest.includes('|')) return [];
+  const out = [];
+  for (const tok of rest.split(/\s+/)) {
+    if (/^--reporter/.test(tok)) return out; // ours wins; stop before theirs
+    out.push(tok.replace(/^['"]|['"]$/g, ''));
+  }
+  return out;
 }
 
 // Strongest evidence first, so `detect` and every default pick agree.
