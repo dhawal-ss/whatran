@@ -20,7 +20,7 @@
     "whatran": "./bin/whatran.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "files": [
     "bin",
