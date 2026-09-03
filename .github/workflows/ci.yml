@@ -24,4 +24,7 @@ jobs:
           fetch-depth: 0 # whatran needs the base commit, not just the tip
       - uses: actions/setup-node@v4
         with: { node-version: '22' }
-      - run: node bin/whatran.js check --base ${{ github.event.pull_request.base.sha }} --strict
+      # Deliberately not --strict. A rename produces a notice, and failing a
+      # pull request for renaming a describe block is how a check gets deleted.
+      # This gate is for coverage that went missing.
+      - run: node bin/whatran.js check --base ${{ github.event.pull_request.base.sha }}
