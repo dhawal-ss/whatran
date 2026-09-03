@@ -41,19 +41,16 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '22' }
       - run: |
+          set -x
           mkdir -p probe/test
-          printf '{"name":"p","type":"module"}
-' > probe/package.json
-          cat > probe/test/sum.test.js <<'EOT'
-          import { test } from 'node:test';
-          import assert from 'node:assert';
-          import { sum } from '../sum.js';
-          test('sum adds', () => { assert.strictEqual(sum(2,3), 5); });
-          EOT
+          echo '{"name":"p","type":"module"}' > probe/package.json
+          echo "import { test } from 'node:test';" > probe/test/sum.test.js
+          echo "import { sum } from '../sum.js';" >> probe/test/sum.test.js
+          echo "test('sum adds', () => { sum(1,2); });" >> probe/test/sum.test.js
           cd probe
           node --version
           node --test --test-reporter=junit --test-reporter-destination=out.xml || true
-          echo '===== RAW XML ====='
+          echo "===== RAW XML ====="
           cat out.xml
-          echo '===== PARSED ====='
-          node -e "import('../src/parse.js').then(m=>{const r=m.parseJUnitXml(require('fs').readFileSync('out.xml','utf8'),{root:process.cwd()});console.log('seen',r.seen,'ids',r.outcomes.size,'unloadable',JSON.stringify(r.unloadable));for(const [k,v] of r.outcomes)console.log(' id',JSON.stringify(k),v);})"
+          echo "===== PARSED ====="
+          node -e "import('../src/parse.js').then(m=>{const r=m.parseJUnitXml(require('fs').readFileSync('out.xml','utf8'),{root:process.cwd()});console.log('seen',r.seen,'ids',r.outcomes.size,'unloadable',JSON.stringify(r.unloadable));for(const e of r.outcomes)console.log(' id',JSON.stringify(e));})"
