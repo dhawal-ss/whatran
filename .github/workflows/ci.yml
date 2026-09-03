@@ -31,26 +31,3 @@ jobs:
       # pull request for renaming a describe block is how a check gets deleted.
       # This gate is for coverage that went missing.
       - run: node bin/whatran.js check --base ${{ github.event.pull_request.base.sha }}
-
-  # TEMPORARY: dump what node:test's JUnit reporter emits for a file that fails
-  # to load, on the one platform where the parser disagrees.
-  probe:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: '22' }
-      - run: |
-          set -x
-          mkdir -p probe/test
-          echo '{"name":"p","type":"module"}' > probe/package.json
-          echo "import { test } from 'node:test';" > probe/test/sum.test.js
-          echo "import { sum } from '../sum.js';" >> probe/test/sum.test.js
-          echo "test('sum adds', () => { sum(1,2); });" >> probe/test/sum.test.js
-          cd probe
-          node --version
-          node --test --test-reporter=junit --test-reporter-destination=out.xml || true
-          echo "===== RAW XML ====="
-          cat out.xml
-          echo "===== PARSED ====="
-          node -e "import('../src/parse.js').then(m=>{const r=m.parseJUnitXml(require('fs').readFileSync('out.xml','utf8'),{root:process.cwd()});console.log('seen',r.seen,'ids',r.outcomes.size,'unloadable',JSON.stringify(r.unloadable));for(const e of r.outcomes)console.log(' id',JSON.stringify(e));})"

@@ -79,6 +79,30 @@ describe('telling a broken import from a crash after the tests ran', () => {
     assert.strictEqual(outcomes.size, 0);
   });
 
+  // Node 22 on Linux omits the `file` attribute from this record entirely,
+  // while Node 24 and Windows include it. Keying the detection on that
+  // attribute therefore worked on the development machine and, everywhere
+  // else, turned a broken import into an accusation that a whole file of tests
+  // had been deleted. These are the exact bytes the CI runner produced.
+  test('a broken import is recognised even with no file attribute', () => {
+    const xml = wrap(
+      '<testcase name="test/sum.test.js" time="0.028" classname="test" failure="test failed">'
+      + '<failure type="testCodeFailure" message="test failed">boom</failure></testcase>',
+    );
+    const { unloadable, outcomes, seen } = parseJUnitXml(xml, { root: '/tmp/repo' });
+    assert.deepStrictEqual(unloadable, ['test/sum.test.js']);
+    assert.strictEqual(outcomes.size, 0);
+    assert.strictEqual(seen, 0, 'the synthetic record is not a test');
+  });
+
+  // The flip side: an ordinary test must never be mistaken for a file.
+  test('an ordinary test with no file attribute stays a test', () => {
+    const xml = wrap('<testcase name="sum adds" classname="test"/>');
+    const { unloadable, outcomes } = parseJUnitXml(xml, { root: '/tmp/repo' });
+    assert.deepStrictEqual(unloadable, []);
+    assert.strictEqual(outcomes.size, 1);
+  });
+
   // node:test emits the SAME synthetic record when the tests ran fine and the
   // process died afterwards. Refusing there would silence the tool on a repo
   // that merely has an unhandled rejection somewhere.

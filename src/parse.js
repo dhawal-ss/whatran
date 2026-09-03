@@ -214,8 +214,16 @@ export function parseJUnitXml(text, { root } = {}) {
     // alone does not mean the file failed to load. What distinguishes them is
     // whether any real test from that file also reported. Both shapes verified
     // against node:test directly.
-    if (file && normaliseSep(attrs.name) === file) {
-      const e = fileOf(file);
+    //
+    // The `file` attribute cannot be relied on to spot it: Node 22 on Linux
+    // omits it from this record entirely (verified on the runner), while 24 and
+    // Windows include it. Keying on the attribute therefore worked on the
+    // development machine and turned a broken import into an accusation
+    // everywhere else, so the name's own shape is what decides.
+    const named = normaliseSep(attrs.name);
+    const key = file || named;
+    if (named && (named === file || (!file && looksLikeTestFile(named)))) {
+      const e = fileOf(key);
       if (outcome === 'failed') e.selfFailed = true;
       continue;
     }
@@ -237,7 +245,7 @@ export function parseJUnitXml(text, { root } = {}) {
     // A dropped record is not silently lost: `seen` was already incremented, so
     // the caller's seen-vs-size guard refuses the run.
     if (!id) continue;
-    if (file) fileOf(file).cases++;
+    if (key) fileOf(key).cases++;
     outcomes.set(id, worst(outcomes.get(id), outcome));
   }
 
@@ -399,6 +407,16 @@ function testId(scope, name) {
 }
 
 const normaliseSep = (p) => (p || '').replace(/\\/g, '/');
+
+// Does this string name a test FILE rather than a test? Used only to recognise
+// the synthetic record a runner emits for a file it could not load, in the
+// shapes where there is no `file` attribute to compare the name against.
+const TEST_FILE_NAME =
+  /(\.(test|spec)\.[cm]?[jt]sx?|_test\.[cm]?[jt]sx?|_test\.go|_test\.py|\.rs)$|(^|\/)test_[^/]*\.py$/;
+
+function looksLikeTestFile(name) {
+  return TEST_FILE_NAME.test(name);
+}
 
 // Absolute paths differ between a worktree and the real checkout, which would
 // make every id look new. Make them relative to the project root instead of
