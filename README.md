@@ -4,7 +4,7 @@
 
 ### What your test suite actually ran.
 
-Your agent says the tests pass. They do. The ones that are left.
+Your agent says the tests pass. They do. The one that was failing is gone.
 
 [![npm](https://img.shields.io/npm/v/whatran?color=2f6b4f&label=npm)](https://www.npmjs.com/package/whatran)
 [![node](https://img.shields.io/node/v/whatran?color=2f6b4f)](https://nodejs.org)
