@@ -8,7 +8,7 @@ Your agent says the tests pass. They do. The ones that are left.
 
 [![npm](https://img.shields.io/npm/v/whatran?color=2f6b4f&label=npm)](https://www.npmjs.com/package/whatran)
 [![node](https://img.shields.io/node/v/whatran?color=2f6b4f)](https://nodejs.org)
-[![license](https://img.shields.io/npm/l/whatran?color=2f6b4f)](./LICENSE)
+[![license](https://img.shields.io/github/license/dhawal-ss/whatran?color=2f6b4f)](./LICENSE)
 [![dependencies](https://img.shields.io/badge/dependencies-none-2f6b4f)](./package.json)
 
 </div>
