@@ -63,6 +63,12 @@ No account. No cloud. No API key. No AI anywhere in the checking. Nothing to con
 You do not strictly need `init` either. Bare `whatran` records its own baseline the first time
 you run it, so there is no command you have to remember to run first.
 
+**Upgrading from 0.1.** The JUnit parser was rewritten, and the test ids it produces are no longer
+the same strings, so a baseline recorded by 0.1 cannot be compared against a run by 0.3. It is
+detected and replaced automatically on the next run rather than compared against and misread; you
+will see one line saying so. Nothing to do, but the first run after upgrading measures against a
+fresh baseline, so make it a run you are happy to call normal.
+
 ## In your agent
 
 Once installed, `/whatran` is available as a slash command in Claude Code. It runs the check and
